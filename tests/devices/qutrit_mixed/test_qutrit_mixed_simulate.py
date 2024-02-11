@@ -71,161 +71,181 @@ class TestStatePrepBase:
 class TestBasicCircuit:
     """Tests a basic circuit with one rx gate and two simple expectation values."""
 
-    # TODO:
-    #  - 2 helper funcs finding value
-    #  - 1 non differentiable numpy
-    #  - all-interfaces tests for circ and grad
-    #  - 2 interface tests
-    # TODO total = 6 funcs, 4 repeats
-
-    def expected_circ_expval_values(self):
+    @staticmethod
+    def expected_circ_expval_values(phi, subspace):
         """TODO helper"""
-        pass
+        if subspace == (0, 1):
+            gellmann_2 = -np.sin(phi)
+            gellmann_3 = np.cos(phi)
+            gellmann_5 = 0
+            gellmann_8 = np.sqrt(1 / 3)
+        if subspace == (0, 2):
+            gellmann_2 = 0
+            gellmann_3 = np.cos(phi / 2) ** 2
+            gellmann_5 = -np.sin(phi)
+            gellmann_8 = np.sqrt(1 / 3) * (np.cos(phi) - np.sin(phi / 2) ** 2)
+        return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
 
-    def expected_circ_expval_jacobians(self):
+    @staticmethod
+    def expected_circ_expval_jacobians(phi, subspace):
         """TODO helper"""
-        pass
+        if subspace == (0, 1):
+            gellmann_2 = -np.cos(phi)
+            gellmann_3 = -np.sin(phi)
+            gellmann_5 = 0
+            gellmann_8 = 0
+        if subspace == (0, 2):
+            gellmann_2 = 0
+            gellmann_3 = -np.sin(phi) / 2
+            gellmann_5 = -np.cos(phi)
+            gellmann_8 = np.sqrt(1 / 3) * -(1.5 * np.sin(phi))
+        return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
 
-    def test_basic_circuit_numpy(self):
+    @staticmethod
+    def get_basic_quantum_script(phi, subspace):
+        ops = [qml.TRX(phi, wires=0, subspace=subspace)]
+        obs = [
+            qml.expval(qml.GellMann(0, 2)),
+            qml.expval(qml.GellMann(0, 3)),
+            qml.expval(qml.GellMann(0, 5)),
+            qml.expval(qml.GellMann(0, 8)),
+        ]
+        return qml.tape.QuantumScript(ops, obs)
+
+    @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+    def test_basic_circuit_numpy(self, subspace):
         """Test execution with a basic circuit."""
-        # phi = np.array(0.397)
-        # qs = qml.tape.QuantumScript(
-        #     [qml.RX(phi, wires=0)], [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))]
-        # )
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == 2
-        #
-        # assert np.allclose(result[0], -np.sin(phi))
-        # assert np.allclose(result[1], np.cos(phi))
-        #
-        # state, is_state_batched = get_final_state(qs)
-        # result = measure_final_state(qs, state, is_state_batched)
-        #
-        # assert np.allclose(state, np.array([np.cos(phi / 2), -1j * np.sin(phi / 2)]))
-        # assert not is_state_batched
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == 2
-        # assert np.allclose(result[0], -np.sin(phi))
-        # assert np.allclose(result[1], np.cos(phi))
-        pass
+        phi = np.array(0.397)
+        qs = self.get_basic_quantum_script(phi, subspace)
+        result = simulate(qs)
+        print(result)
+
+        expected_measurements = self.expected_circ_expval_values(phi, subspace)
+        assert isinstance(result, tuple)
+        assert len(result) == 4
+        assert np.allclose(result, expected_measurements)
+
+        state, is_state_batched = get_final_state(qs)
+        result = measure_final_state(qs, state, is_state_batched)
+
+        # find expected state
+        expected_vector = np.array([0, 0, 0], dtype=complex)
+        expected_vector[subspace[0]] = np.cos(phi / 2)
+        expected_vector[subspace[1]] = -1j * np.sin(phi / 2)
+        expected_state = np.outer(expected_vector, np.conj(expected_vector))
+
+        assert np.allclose(state, expected_state)
+        assert not is_state_batched
+
+        assert isinstance(result, tuple)
+        assert len(result) == 4
+        assert np.allclose(result, expected_measurements)
 
     @pytest.mark.autograd
-    def test_autograd_results_and_backprop(self):
+    @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+    def test_autograd_results_and_backprop(self, subspace):
         """Tests execution and gradients with autograd"""
-        # phi = qml.numpy.array(-0.52)
-        #
-        # def f(x):
-        #     qs = qml.tape.QuantumScript(
-        #         [qml.RX(x, wires=0)], [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))]
-        #     )
-        #     return qml.numpy.array(simulate(qs))
-        #
-        # result = f(phi)
-        # expected = np.array([-np.sin(phi), np.cos(phi)])
-        # assert qml.math.allclose(result, expected)
-        #
-        # g = qml.jacobian(f)(phi)
-        # expected = np.array([-np.cos(phi), -np.sin(phi)])
-        # assert qml.math.allclose(g, expected)
-        pass
+        phi = qml.numpy.array(-0.52)
+
+        def f(x):
+            qs = self.get_basic_quantum_script(x, subspace)
+            return qml.numpy.array(simulate(qs))
+
+        result = f(phi)
+        expected = self.expected_circ_expval_values(phi, subspace)
+        assert qml.math.allclose(result, expected)
+
+        g = qml.jacobian(f)(phi)
+        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        assert qml.math.allclose(g, expected)
 
     @pytest.mark.jax
     @pytest.mark.parametrize("use_jit", (True, False))
-    def test_jax_results_and_backprop(self, use_jit):
+    @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+    def test_jax_results_and_backprop(self, use_jit, subspace):
         """Tests exeuction and gradients with jax."""
-        # import jax
-        #
-        # phi = jax.numpy.array(0.678)
-        #
-        # def f(x):
-        #     qs = qml.tape.QuantumScript(
-        #         [qml.RX(x, wires=0)], [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))]
-        #     )
-        #     return simulate(qs)
-        #
-        # if use_jit:
-        #     f = jax.jit(f)
-        #
-        # result = f(phi)
-        # assert qml.math.allclose(result[0], -np.sin(phi))
-        # assert qml.math.allclose(result[1], np.cos(phi))
-        #
-        # g = jax.jacobian(f)(phi)
-        # assert qml.math.allclose(g[0], -np.cos(phi))
-        # assert qml.math.allclose(g[1], -np.sin(phi))
-        pass
+        import jax
+
+        phi = jax.numpy.array(0.678)
+
+        def f(x):
+            qs = self.get_basic_quantum_script(x, subspace)
+            return simulate(qs)
+
+        if use_jit:
+            f = jax.jit(f)
+
+        result = f(phi)
+        expected = self.expected_circ_expval_values(phi, subspace)
+        assert qml.math.allclose(result, expected)
+
+        g = jax.jacobian(f)(phi)
+        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        assert qml.math.allclose(g, expected)
 
     @pytest.mark.torch
-    def test_torch_results_and_backprop(self):
+    @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+    def test_torch_results_and_backprop(self, subspace):
         """Tests execution and gradients of a simple circuit with torch."""
 
-        # import torch
-        #
-        # phi = torch.tensor(-0.526, requires_grad=True)
-        #
-        # def f(x):
-        #     qs = qml.tape.QuantumScript(
-        #         [qml.RX(x, wires=0)], [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))]
-        #     )
-        #     return simulate(qs)
-        #
-        # result = f(phi)
-        # assert qml.math.allclose(result[0], -torch.sin(phi))
-        # assert qml.math.allclose(result[1], torch.cos(phi))
-        #
-        # g = torch.autograd.functional.jacobian(f, phi + 0j)
-        # assert qml.math.allclose(g[0], -torch.cos(phi))
-        # assert qml.math.allclose(g[1], -torch.sin(phi))
-        pass
+        import torch
+
+        phi = torch.tensor(-0.526, requires_grad=True)
+
+        def f(x):
+            qs = self.get_basic_quantum_script(x, subspace)
+            return simulate(qs)
+
+        result = f(phi)
+        expected = self.expected_circ_expval_values(phi.detach().numpy(), subspace)
+        assert qml.math.allclose(result[0], expected[0])
+        assert qml.math.allclose(result[1], expected[1])
+        assert qml.math.allclose(result[2], expected[2])
+        assert qml.math.allclose(result[3], expected[3])
+
+        g = torch.autograd.functional.jacobian(f, phi + 0j)
+        expected = self.expected_circ_expval_jacobians(phi.detach().numpy(), subspace)
+        assert qml.math.allclose(g[0], expected[0])
+        assert qml.math.allclose(g[1], expected[1])
+        assert qml.math.allclose(g[2], expected[2])
+        assert qml.math.allclose(g[3], expected[3])
 
     # TODO check if necessary pylint
     # pylint: disable=invalid-unary-operand-type
     @pytest.mark.tf
-    def test_tf_results_and_backprop(self):
+    @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+    def test_tf_results_and_backprop(self, subspace):
         """Tests execution and gradients of a simple circuit with tensorflow."""
-        # import tensorflow as tf
-        #
-        # phi = tf.Variable(4.873)
-        #
-        # with tf.GradientTape(persistent=True) as grad_tape:
-        #     qs = qml.tape.QuantumScript(
-        #         [qml.RX(phi, wires=0)], [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))]
-        #     )
-        #     result = simulate(qs)
-        #
-        # assert qml.math.allclose(result[0], -tf.sin(phi))
-        # assert qml.math.allclose(result[1], tf.cos(phi))
-        #
-        # grad0 = grad_tape.jacobian(result[0], [phi])
-        # grad1 = grad_tape.jacobian(result[1], [phi])
-        #
-        # assert qml.math.allclose(grad0[0], -tf.cos(phi))
-        # assert qml.math.allclose(grad1[0], -tf.sin(phi))
-        pass
+        import tensorflow as tf
+
+        phi = tf.Variable(4.873)
+
+        with tf.GradientTape(persistent=True) as grad_tape:
+            qs = self.get_basic_quantum_script(phi, subspace)
+            result = simulate(qs)
+
+        expected = self.expected_circ_expval_values(phi, subspace)
+        assert qml.math.allclose(result, expected)
+
+        grad0 = grad_tape.jacobian(result[0], [phi])
+        grad1 = grad_tape.jacobian(result[1], [phi])
+        grad2 = grad_tape.jacobian(result[2], [phi])
+        grad3 = grad_tape.jacobian(result[3], [phi])
+
+        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        assert qml.math.allclose(grad0[0], expected[0])
+        assert qml.math.allclose(grad1[0], expected[1])
+        assert qml.math.allclose(grad2[0], expected[2])
+        assert qml.math.allclose(grad3[0], expected[3])
 
     @pytest.mark.jax
-    @pytest.mark.parametrize("op", [qml.RX(np.pi, 0), qml.BasisState([1], 0)])
+    @pytest.mark.parametrize("op", [qml.TRX(np.pi, 0), qml.QutritBasisState([1], 0)])
     def test_result_has_correct_interface(self, op):
         """Test that even if no interface parameters are given, result is correct."""
-        # qs = qml.tape.QuantumScript([op], [qml.expval(qml.PauliZ(0))])
-        # res = simulate(qs, interface="jax")
-        # assert qml.math.get_interface(res) == "jax"
-        # assert qml.math.allclose(res, -1)
-        pass
-
-    def test_expand_state_keeps_autograd_interface(self):
-        """Test that expand_state doesn't convert autograd to numpy."""
-
-        # @qml.qnode(qml.device("default.qubit", wires=2))
-        # def circuit(x):
-        #     qml.RX(x, 0)
-        #     return qml.probs(wires=[0, 1])
-        #
-        # assert qml.math.get_interface(circuit(1.5)) == "autograd"
-        pass
+        qs = qml.tape.QuantumScript([op], [qml.expval(qml.GellMann(0, 3))])
+        res = simulate(qs, interface="jax")
+        assert qml.math.get_interface(res) == "jax"
+        assert qml.math.allclose(res, -1)
 
 
 class TestBroadcasting:
@@ -906,6 +926,9 @@ class TestOperatorArithmetic:  # TODO check if necessary
         # g1 = tape.gradient(results[1], phi)
         # assert qml.math.allclose(g1, -3 * np.sin(phi))
         pass
+
+
+qml.ApproxTimeEvolution
 
 
 class TestQInfoMeasurements:  # TODO: maybe add some basics here
