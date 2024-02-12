@@ -22,6 +22,56 @@ from pennylane import math
 from pennylane.devices.qutrit_mixed.simulate import simulate, get_final_state, measure_final_state
 
 
+def expected_TRX_circ_expval_values(phi, subspace):
+    """TODO helper"""
+    if subspace == (0, 1):
+        gellmann_2 = -np.sin(phi)
+        gellmann_3 = np.cos(phi)
+        gellmann_5 = 0
+        gellmann_8 = np.sqrt(1 / 3)
+    if subspace == (0, 2):
+        gellmann_2 = 0
+        gellmann_3 = np.cos(phi / 2) ** 2
+        gellmann_5 = -np.sin(phi)
+        gellmann_8 = np.sqrt(1 / 3) * (np.cos(phi) - np.sin(phi / 2) ** 2)
+    return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
+
+
+def expected_TRX_circ_expval_jacobians(phi, subspace):
+    """TODO helper"""
+    if subspace == (0, 1):
+        gellmann_2 = -np.cos(phi)
+        gellmann_3 = -np.sin(phi)
+        gellmann_5 = 0
+        gellmann_8 = 0
+    if subspace == (0, 2):
+        gellmann_2 = 0
+        gellmann_3 = -np.sin(phi) / 2
+        gellmann_5 = -np.cos(phi)
+        gellmann_8 = np.sqrt(1 / 3) * -(1.5 * np.sin(phi))
+    return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
+
+
+def expected_TRX_circ_state(phi, subspace):
+    """TODO helper"""
+    expected_vector = np.array([0, 0, 0], dtype=complex)
+    expected_vector[subspace[0]] = np.cos(phi / 2)
+    expected_vector[subspace[1]] = -1j * np.sin(phi / 2)
+    return np.outer(expected_vector, np.conj(expected_vector))
+
+
+def get_TRX_quantum_script(phi, subspace):
+    """TODO helper"""
+    ops = [qml.TRX(phi, wires=0, subspace=subspace)]
+    obs = [
+        qml.expval(qml.GellMann(0, 2)),
+        qml.expval(qml.GellMann(0, 3)),
+        qml.expval(qml.GellMann(0, 5)),
+        qml.expval(qml.GellMann(0, 8)),
+    ]
+    return qml.tape.QuantumScript(ops, obs)
+
+
 class TestCurrentlyUnsupportedCases:
     # pylint: disable=too-few-public-methods
     def test_sample_based_observable(self):
@@ -37,90 +87,46 @@ def test_custom_operation():
     """Test execution works with a manually defined operator if it has a matrix."""
 
     # pylint: disable=too-few-public-methods
-    # class MyOperator(qml.operation.Operator):
-    #     num_wires = 1
-    #
-    #     @staticmethod
-    #     def compute_matrix():
-    #         return qml.PauliX.compute_matrix()
-    #
-    # qs = qml.tape.QuantumScript([MyOperator(0)], [qml.expval(qml.PauliZ(0))])
-    #
-    # result = simulate(qs)
-    # assert qml.math.allclose(result, -1.0)
-    pass
+    class MyOperator(qml.operation.Operator):
+        num_wires = 1
+
+        @staticmethod
+        def compute_matrix():
+            return np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]])
+
+    qs = qml.tape.QuantumScript([MyOperator(0)], [qml.expval(qml.GellMann(0, 8))])
+
+    result = simulate(qs)
+    assert qml.math.allclose(result, -np.sqrt(4 / 3))
 
 
 class TestStatePrepBase:
     """Tests integration with various state prep methods."""
 
-    # TODO: 1 test
-
     def test_basis_state(self):
         """Test that the BasisState operator prepares the desired state."""
-        # qs = qml.tape.QuantumScript(
-        #     ops=[qml.BasisState([0, 1], wires=(0, 1))], measurements=[qml.probs(wires=(0, 1, 2))]
-        # )
-        # probs = simulate(qs)
-        # expected = np.zeros(8)
-        # expected[2] = 1.0
-        # assert qml.math.allclose(probs, expected)
-        pass
+        qs = qml.tape.QuantumScript(
+            ops=[qml.QutritBasisState([2, 1], wires=(0, 1))],
+            measurements=[qml.probs(wires=(0, 1, 2))],
+        )
+        probs = simulate(qs)
+        expected = np.zeros((27, 27))
+        expected[5, 5] = 1.0
+        assert qml.math.allclose(probs, expected)
 
 
 class TestBasicCircuit:
     """Tests a basic circuit with one rx gate and two simple expectation values."""
 
-    @staticmethod
-    def expected_circ_expval_values(phi, subspace):
-        """TODO helper"""
-        if subspace == (0, 1):
-            gellmann_2 = -np.sin(phi)
-            gellmann_3 = np.cos(phi)
-            gellmann_5 = 0
-            gellmann_8 = np.sqrt(1 / 3)
-        if subspace == (0, 2):
-            gellmann_2 = 0
-            gellmann_3 = np.cos(phi / 2) ** 2
-            gellmann_5 = -np.sin(phi)
-            gellmann_8 = np.sqrt(1 / 3) * (np.cos(phi) - np.sin(phi / 2) ** 2)
-        return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
-
-    @staticmethod
-    def expected_circ_expval_jacobians(phi, subspace):
-        """TODO helper"""
-        if subspace == (0, 1):
-            gellmann_2 = -np.cos(phi)
-            gellmann_3 = -np.sin(phi)
-            gellmann_5 = 0
-            gellmann_8 = 0
-        if subspace == (0, 2):
-            gellmann_2 = 0
-            gellmann_3 = -np.sin(phi) / 2
-            gellmann_5 = -np.cos(phi)
-            gellmann_8 = np.sqrt(1 / 3) * -(1.5 * np.sin(phi))
-        return np.array([gellmann_2, gellmann_3, gellmann_5, gellmann_8])
-
-    @staticmethod
-    def get_basic_quantum_script(phi, subspace):
-        ops = [qml.TRX(phi, wires=0, subspace=subspace)]
-        obs = [
-            qml.expval(qml.GellMann(0, 2)),
-            qml.expval(qml.GellMann(0, 3)),
-            qml.expval(qml.GellMann(0, 5)),
-            qml.expval(qml.GellMann(0, 8)),
-        ]
-        return qml.tape.QuantumScript(ops, obs)
-
     @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
     def test_basic_circuit_numpy(self, subspace):
         """Test execution with a basic circuit."""
         phi = np.array(0.397)
-        qs = self.get_basic_quantum_script(phi, subspace)
+        qs = get_TRX_quantum_script(phi, subspace)
         result = simulate(qs)
         print(result)
 
-        expected_measurements = self.expected_circ_expval_values(phi, subspace)
+        expected_measurements = expected_TRX_circ_expval_values(phi, subspace)
         assert isinstance(result, tuple)
         assert len(result) == 4
         assert np.allclose(result, expected_measurements)
@@ -128,11 +134,7 @@ class TestBasicCircuit:
         state, is_state_batched = get_final_state(qs)
         result = measure_final_state(qs, state, is_state_batched)
 
-        # find expected state
-        expected_vector = np.array([0, 0, 0], dtype=complex)
-        expected_vector[subspace[0]] = np.cos(phi / 2)
-        expected_vector[subspace[1]] = -1j * np.sin(phi / 2)
-        expected_state = np.outer(expected_vector, np.conj(expected_vector))
+        expected_state = expected_TRX_circ_state(phi, subspace)
 
         assert np.allclose(state, expected_state)
         assert not is_state_batched
@@ -148,15 +150,15 @@ class TestBasicCircuit:
         phi = qml.numpy.array(-0.52)
 
         def f(x):
-            qs = self.get_basic_quantum_script(x, subspace)
+            qs = get_TRX_quantum_script(x, subspace)
             return qml.numpy.array(simulate(qs))
 
         result = f(phi)
-        expected = self.expected_circ_expval_values(phi, subspace)
+        expected = expected_TRX_circ_expval_values(phi, subspace)
         assert qml.math.allclose(result, expected)
 
         g = qml.jacobian(f)(phi)
-        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        expected = expected_TRX_circ_expval_jacobians(phi, subspace)
         assert qml.math.allclose(g, expected)
 
     @pytest.mark.jax
@@ -169,18 +171,18 @@ class TestBasicCircuit:
         phi = jax.numpy.array(0.678)
 
         def f(x):
-            qs = self.get_basic_quantum_script(x, subspace)
+            qs = get_TRX_quantum_script(x, subspace)
             return simulate(qs)
 
         if use_jit:
             f = jax.jit(f)
 
         result = f(phi)
-        expected = self.expected_circ_expval_values(phi, subspace)
+        expected = expected_TRX_circ_expval_values(phi, subspace)
         assert qml.math.allclose(result, expected)
 
         g = jax.jacobian(f)(phi)
-        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        expected = expected_TRX_circ_expval_jacobians(phi, subspace)
         assert qml.math.allclose(g, expected)
 
     @pytest.mark.torch
@@ -193,18 +195,18 @@ class TestBasicCircuit:
         phi = torch.tensor(-0.526, requires_grad=True)
 
         def f(x):
-            qs = self.get_basic_quantum_script(x, subspace)
+            qs = get_TRX_quantum_script(x, subspace)
             return simulate(qs)
 
         result = f(phi)
-        expected = self.expected_circ_expval_values(phi.detach().numpy(), subspace)
+        expected = expected_TRX_circ_expval_values(phi.detach().numpy(), subspace)
         assert qml.math.allclose(result[0], expected[0])
         assert qml.math.allclose(result[1], expected[1])
         assert qml.math.allclose(result[2], expected[2])
         assert qml.math.allclose(result[3], expected[3])
 
         g = torch.autograd.functional.jacobian(f, phi + 0j)
-        expected = self.expected_circ_expval_jacobians(phi.detach().numpy(), subspace)
+        expected = expected_TRX_circ_expval_jacobians(phi.detach().numpy(), subspace)
         assert qml.math.allclose(g[0], expected[0])
         assert qml.math.allclose(g[1], expected[1])
         assert qml.math.allclose(g[2], expected[2])
@@ -221,10 +223,10 @@ class TestBasicCircuit:
         phi = tf.Variable(4.873)
 
         with tf.GradientTape(persistent=True) as grad_tape:
-            qs = self.get_basic_quantum_script(phi, subspace)
+            qs = get_TRX_quantum_script(phi, subspace)
             result = simulate(qs)
 
-        expected = self.expected_circ_expval_values(phi, subspace)
+        expected = expected_TRX_circ_expval_values(phi, subspace)
         assert qml.math.allclose(result, expected)
 
         grad0 = grad_tape.jacobian(result[0], [phi])
@@ -232,7 +234,7 @@ class TestBasicCircuit:
         grad2 = grad_tape.jacobian(result[2], [phi])
         grad3 = grad_tape.jacobian(result[3], [phi])
 
-        expected = self.expected_circ_expval_jacobians(phi, subspace)
+        expected = expected_TRX_circ_expval_jacobians(phi, subspace)
         assert qml.math.allclose(grad0[0], expected[0])
         assert qml.math.allclose(grad1[0], expected[1])
         assert qml.math.allclose(grad2[0], expected[2])
@@ -434,12 +436,8 @@ class TestPostselection:  # TODO, necessesary?
     pass
 
 
-class TestDebugger:
+class TestDebugger:  # TODO fix other to work with this
     """Tests that the debugger works for a simple circuit"""
-
-    # TODO:
-    #  - test debugger, all-interfaces + numpy
-    # TODO total = 1 func, 5 repeats
 
     class Debugger:
         """A dummy debugger class"""
@@ -448,123 +446,116 @@ class TestDebugger:
             self.active = True
             self.snapshots = {}
 
-    def test_debugger_numpy(self):
+    def test_debugger_numpy(self, subspace):
         """Test debugger with numpy"""
-        # phi = np.array(0.397)
-        # ops = [qml.Snapshot(), qml.RX(phi, wires=0), qml.Snapshot("final_state")]
-        # qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
-        #
-        # debugger = self.Debugger()
-        # result = simulate(qs, debugger=debugger)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == 2
-        #
-        # assert np.allclose(result[0], -np.sin(phi))
-        # assert np.allclose(result[1], np.cos(phi))
-        #
-        # assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        # assert np.allclose(debugger.snapshots[0], [1, 0])
-        # assert np.allclose(
-        #     debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        # )
-        pass
+        phi = np.array(0.397)
+        ops = [qml.Snapshot(), qml.TRX(phi, wires=0), qml.Snapshot("final_state")]
+        qs = get_TRX_quantum_script(phi, subspace)
+        debugger = self.Debugger()
+        result = simulate(qs, debugger=debugger)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+        assert np.allclose(result[0], -np.sin(phi))
+        assert np.allclose(result[1], np.cos(phi))
+
+        assert list(debugger.snapshots.keys()) == [0, "final_state"]
+        assert np.allclose(debugger.snapshots[0], [1, 0])
+        assert np.allclose(
+            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
+        )
 
     @pytest.mark.autograd
     def test_debugger_autograd(self):
         """Tests debugger with autograd"""
-        # phi = qml.numpy.array(-0.52)
-        # debugger = self.Debugger()
-        #
-        # def f(x):
-        #     ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-        #     qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
-        #     return qml.numpy.array(simulate(qs, debugger=debugger))
-        #
-        # result = f(phi)
-        # expected = np.array([-np.sin(phi), np.cos(phi)])
-        # assert qml.math.allclose(result, expected)
-        #
-        # assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        # assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        # assert qml.math.allclose(
-        #     debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        # )
-        pass
+        phi = qml.numpy.array(-0.52)
+        debugger = self.Debugger()
+
+        def f(x):
+            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
+            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            return qml.numpy.array(simulate(qs, debugger=debugger))
+
+        result = f(phi)
+        expected = np.array([-np.sin(phi), np.cos(phi)])
+        assert qml.math.allclose(result, expected)
+
+        assert list(debugger.snapshots.keys()) == [0, "final_state"]
+        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
+        assert qml.math.allclose(
+            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
+        )
 
     @pytest.mark.jax
     def test_debugger_jax(self):
         """Tests debugger with JAX"""
-        # import jax
-        #
-        # phi = jax.numpy.array(0.678)
-        # debugger = self.Debugger()
-        #
-        # def f(x):
-        #     ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-        #     qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
-        #     return simulate(qs, debugger=debugger)
-        #
-        # result = f(phi)
-        # assert qml.math.allclose(result[0], -np.sin(phi))
-        # assert qml.math.allclose(result[1], np.cos(phi))
-        #
-        # assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        # assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        # assert qml.math.allclose(
-        #     debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        # )
-        pass
+        import jax
+
+        phi = jax.numpy.array(0.678)
+        debugger = self.Debugger()
+
+        def f(x):
+            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
+            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            return simulate(qs, debugger=debugger)
+
+        result = f(phi)
+        assert qml.math.allclose(result[0], -np.sin(phi))
+        assert qml.math.allclose(result[1], np.cos(phi))
+
+        assert list(debugger.snapshots.keys()) == [0, "final_state"]
+        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
+        assert qml.math.allclose(
+            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
+        )
 
     @pytest.mark.torch
     def test_debugger_torch(self):
         """Tests debugger with torch"""
+        import torch
 
-        # import torch
-        #
-        # phi = torch.tensor(-0.526, requires_grad=True)
-        # debugger = self.Debugger()
-        #
-        # def f(x):
-        #     ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-        #     qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
-        #     return simulate(qs, debugger=debugger)
-        #
-        # result = f(phi)
-        # assert qml.math.allclose(result[0], -torch.sin(phi))
-        # assert qml.math.allclose(result[1], torch.cos(phi))
-        #
-        # assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        # assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        # print(debugger.snapshots["final_state"])
-        # assert qml.math.allclose(
-        #     debugger.snapshots["final_state"],
-        #     torch.tensor([torch.cos(phi / 2), -torch.sin(phi / 2) * 1j]),
-        # )
-        pass
+        phi = torch.tensor(-0.526, requires_grad=True)
+        debugger = self.Debugger()
+
+        def f(x):
+            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
+            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            return simulate(qs, debugger=debugger)
+
+        result = f(phi)
+        assert qml.math.allclose(result[0], -torch.sin(phi))
+        assert qml.math.allclose(result[1], torch.cos(phi))
+
+        assert list(debugger.snapshots.keys()) == [0, "final_state"]
+        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
+        print(debugger.snapshots["final_state"])
+        assert qml.math.allclose(
+            debugger.snapshots["final_state"],
+            torch.tensor([torch.cos(phi / 2), -torch.sin(phi / 2) * 1j]),
+        )
 
     # pylint: disable=invalid-unary-operand-type
     @pytest.mark.tf
     def test_debugger_tf(self):
         """Tests debugger with tensorflow."""
-        # import tensorflow as tf
-        #
-        # phi = tf.Variable(4.873)
-        # debugger = self.Debugger()
-        #
-        # ops = [qml.Snapshot(), qml.RX(phi, wires=0), qml.Snapshot("final_state")]
-        # qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
-        # result = simulate(qs, debugger=debugger)
-        #
-        # assert qml.math.allclose(result[0], -tf.sin(phi))
-        # assert qml.math.allclose(result[1], tf.cos(phi))
-        #
-        # assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        # assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        # assert qml.math.allclose(
-        #     debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        # )
-        pass
+        import tensorflow as tf
+
+        phi = tf.Variable(4.873)
+        debugger = self.Debugger()
+
+        ops = [qml.Snapshot(), qml.RX(phi, wires=0), qml.Snapshot("final_state")]
+        qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+        result = simulate(qs, debugger=debugger)
+
+        assert qml.math.allclose(result[0], -tf.sin(phi))
+        assert qml.math.allclose(result[1], tf.cos(phi))
+
+        assert list(debugger.snapshots.keys()) == [0, "final_state"]
+        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
+        assert qml.math.allclose(
+            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
+        )
 
 
 class TestSampleMeasurements:
