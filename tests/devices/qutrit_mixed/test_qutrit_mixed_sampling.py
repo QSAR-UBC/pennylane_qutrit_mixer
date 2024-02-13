@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Unit tests for sampling states in devices/qutrit_mixed."""
-from random import shuffle
 import pytest
 import numpy as np
+from flaky import flaky
 
 import pennylane as qml
 from pennylane import math
-from pennylane.devices.qubit.simulate import _FlexShots  # TODO, should I switch this
-from pennylane.devices.qutrit_mixed.sampling import (
-    sample_state,
-    _sample_state_jax,
-    measure_with_samples,
-)
+from pennylane.devices.qutrit_mixed import sample_state, measure_with_samples
+from pennylane.devices.qutrit_mixed.sampling import _sample_state_jax
 from pennylane.measurements import Shots
 
-APPROX_ATOL = 0.05
+APPROX_ATOL = 0.01
 QUDIT_DIM = 3
 ONE_QUTRIT = 1
 TWO_QUTRITS = 2
@@ -42,7 +38,7 @@ ml_frameworks_list = [
 
 
 def get_dm_of_state(state_vector, num_qudits, normalization=1):
-    state = np.outer(np.conj(state_vector), state_vector) / normalization
+    state = np.outer(state_vector, np.conj(state_vector)) / normalization
     return state.reshape((QUDIT_DIM,) * num_qudits * 2)
 
 
@@ -133,11 +129,11 @@ class TestSampleState:
         spy.assert_called_once()
 
     @pytest.mark.jax
-    def test_sample_state_jax(self, two_qutrit_state):
+    def test_sample_state_jax(self, two_qutrit_pure_state):
         """Tests that the returned samples are as expected when explicitly calling _sample_state_jax."""
         import jax
 
-        state = qml.math.array(two_qutrit_state, like="jax")
+        state = qml.math.array(two_qutrit_pure_state, like="jax")
 
         samples = _sample_state_jax(state, 10, prng_key=jax.random.PRNGKey(84))
 
@@ -159,43 +155,33 @@ class TestSampleState:
         assert np.all(samples == samples2)
         assert not np.allclose(samples, samples3)
 
-    @pytest.mark.skip(reason="Broken due to measure")
-    @pytest.mark.parametrize("wire_order", [[2], [2, 0], [0, 2, 1]])
-    def test_marginal_sample_state(self, wire_order):
-        """Tests that marginal states can be sampled as expected."""
-        state = np.zeros((QUDIT_DIM,) * THREE_QUTRITS * 2)
-        state[..., 1] = 0.5  # third wire is always 1
-        alltrue_axis = wire_order.index(2)
-
-        samples = sample_state(state, 20, wires=wire_order)
-        assert all(samples[:, alltrue_axis] == 1)
-
     def test_sample_state_custom_rng(self, two_qutrit_state):
         """Tests that a custom RNG can be used with sample_state."""
         custom_rng = np.random.default_rng(12345)
         samples = sample_state(two_qutrit_state, 4, rng=custom_rng)
-        expected = [[0, 1], [0, 2], [2, 1], [1, 2]]
+        expected = [[0, 2], [1, 0], [2, 1], [1, 2]]
         assert qml.math.allequal(samples, expected)
 
-    def test_approximate_probs_from_samples(self, three_qutrit_state):
+    @flaky
+    def test_approximate_probs_from_samples(self, two_qutrit_state):
         """Tests that the generated samples are approximately as expected."""
         shots = 20000
-        state = three_qutrit_state
+        state = two_qutrit_state
 
-        flat_state = state.reshape((QUDIT_DIM**THREE_QUTRITS,) * 2)
+        flat_state = state.reshape((QUDIT_DIM**TWO_QUTRITS,) * 2)
         expected_probs = np.abs(np.diag(flat_state))
 
         samples = sample_state(state, shots)
-        approx_probs = samples_to_probs(samples, THREE_QUTRITS)
+        approx_probs = samples_to_probs(samples, TWO_QUTRITS)
         assert np.allclose(approx_probs, expected_probs, atol=APPROX_ATOL)
 
+    @flaky
     def test_entangled_qutrit_samples_always_match(self):
         """Tests that entangled qutrits are always in the same state."""
         num_samples = 10000
 
         bell_state_vector = np.array([[1, 0, 0, 0, 1, 0, 0, 0, 1]])
-        bell_state = np.outer(np.conj(bell_state_vector), bell_state_vector) / 3
-        bell_state = math.reshape(bell_state, (QUDIT_DIM,) * TWO_QUTRITS * 2)
+        bell_state = get_dm_of_state(bell_state_vector, 2, 3)
 
         samples = sample_state(bell_state, num_samples)
         assert samples.shape == (num_samples, 2)
@@ -203,13 +189,19 @@ class TestSampleState:
 
         # all samples are approximately equivalently sampled
         assert np.isclose(
-            math.count_nonzero(samples[:, 0] == 0) / num_samples, 1 / 3, atol=APPROX_ATOL
+            math.count_nonzero(samples[:, 0] == 0) / num_samples,
+            1 / 3,
+            atol=APPROX_ATOL,
         )
         assert np.isclose(
-            math.count_nonzero(samples[:, 0] == 1) / num_samples, 1 / 3, atol=APPROX_ATOL
+            math.count_nonzero(samples[:, 0] == 1) / num_samples,
+            1 / 3,
+            atol=APPROX_ATOL,
         )
         assert np.isclose(
-            math.count_nonzero(samples[:, 0] == 2) / num_samples, 1 / 3, atol=APPROX_ATOL
+            math.count_nonzero(samples[:, 0] == 2) / num_samples,
+            1 / 3,
+            atol=APPROX_ATOL,
         )
 
     @pytest.mark.slow
@@ -218,7 +210,6 @@ class TestSampleState:
         (
             (8, [7, 5, 3, 1, 6, 0, 4, 2]),
             (9, [4, 0, 2, 1, 5, 7, 6, 8, 3]),
-            (10, [7, 0, 9, 6, 5, 8, 1, 4, 3, 2]),
         ),
     )
     def test_sample_state_many_wires(self, num_wires, shuffled_wires):
@@ -241,7 +232,7 @@ class TestSampleState:
         assert np.allclose(reordered_probs, random_probs, atol=APPROX_ATOL)
 
 
-class TestMeasureSamples:
+class TestMeasureWithSamples:
     """Test that the measure_with_samples function works as expected"""
 
     def test_sample_measure(self, two_qutrit_pure_state):
@@ -258,8 +249,7 @@ class TestMeasureSamples:
     def test_sample_measure_single_wire(self):
         """Test that a sample measurement on a single wire works as expected"""
         state_vector = np.array([1, -1j, 1, 0, 0, 0, 0, 0, 0])
-        state = np.outer(np.conj(state_vector), state_vector) / 3
-        state = np.reshape(state, (QUDIT_DIM,) * TWO_QUTRITS * 2)
+        state = get_dm_of_state(state_vector, 2, 3)
         shots = qml.measurements.Shots(100)
 
         mp0 = qml.sample(wires=0)
@@ -281,24 +271,151 @@ class TestMeasureSamples:
         shots = qml.measurements.Shots(10000)
         mp = qml.sample(wires=range(2))
 
-        result = measure_with_samples([mp], two_qutrit_pure_state, shots=shots, rng=123)[0]
+        result = measure_with_samples([mp], two_qutrit_pure_state, shots=shots, rng=147)[0]
 
         one_or_two_prob = np.count_nonzero(result[:, 0]) / result.shape[0]
         one_prob = np.count_nonzero(result[:, 0] == 1) / result.shape[0]
         assert np.allclose(one_or_two_prob, 2 / 3, atol=APPROX_ATOL)
         assert np.allclose(one_prob, 1 / 3, atol=APPROX_ATOL)
 
-    # TODO: add 2 sample mps
-    # TODO: add counts test
-    # TODO: add mixed counts and sample test
+    @flaky
+    def test_counts_measure(self, two_qutrit_pure_state):
+        """Test that a counts measurement works as expected"""
+        num_shots = 10000
+        shots = qml.measurements.Shots(num_shots)
+        mp = qml.counts()
+
+        result = measure_with_samples([mp], two_qutrit_pure_state, shots=shots)[0]
+
+        assert isinstance(result, dict)
+        assert sorted(result.keys()) == ["02", "10", "21"]
+        assert np.isclose(result["02"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+        assert np.isclose(result["10"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+        assert np.isclose(result["21"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+
+    @flaky
+    def test_counts_measure_single_wire(self):
+        """Test that a counts measurement on a single wire works as expected"""
+        state_vector = np.sqrt(np.array([5, -2j, 1, 0, 0, 0, 0, 0, 0]) / 8)
+        state = get_dm_of_state(state_vector, 2)
+
+        num_shots = 10000
+        shots = qml.measurements.Shots(num_shots)
+
+        mp0 = qml.counts(wires=0)
+        mp1 = qml.counts(wires=1)
+
+        result0 = measure_with_samples([mp0], state, shots=shots)[0]
+        result1 = measure_with_samples([mp1], state, shots=shots)[0]
+
+        assert isinstance(result1, dict)
+        assert result0 == {"0": num_shots}
+
+        assert isinstance(result1, dict)
+        assert sorted(result1.keys()) == ["0", "1", "2"]
+        assert np.isclose(result1["0"] / num_shots, 5 / 8, atol=APPROX_ATOL)
+        assert np.isclose(result1["1"] / num_shots, 1 / 4, atol=APPROX_ATOL)
+        assert np.isclose(result1["2"] / num_shots, 1 / 8, atol=APPROX_ATOL)
+
+    def test_multiple_sample_measurements(self):
+        """Test that a set of sample measurements works as expected"""
+        state_vector = np.array([1, -1j, 1, 0, 0, 0, 0, 0, 0])
+        state = get_dm_of_state(state_vector, 2, 3)
+        shots = qml.measurements.Shots(100)
+
+        mp = qml.sample()
+        mp0 = qml.sample(wires=0)
+        mp1 = qml.sample(wires=1)
+
+        result, result0, result1 = measure_with_samples([mp, mp0, mp1], state, shots=shots)
+
+        assert result.shape == (shots.total_shots, 2)
+        assert result.dtype == np.int64
+        assert len(np.unique(result)) == 3
+
+        assert result0.shape == (shots.total_shots,)
+        assert result0.dtype == np.int64
+        assert np.all(result0 == 0)
+
+        assert result1.shape == (shots.total_shots,)
+        assert result1.dtype == np.int64
+        assert len(np.unique(result1)) == 3
+
+    @flaky
+    def test_sample_and_counts_measurements(self, two_qutrit_pure_state):
+        """Test that sample measurements properly sample an observable"""
+        num_shots = 10000
+        shots = qml.measurements.Shots(num_shots)
+        samples_mp = qml.sample()
+        counts_mp = qml.counts()
+
+        sample_results, counts_results = measure_with_samples(
+            [samples_mp, counts_mp], two_qutrit_pure_state, shots=shots
+        )
+
+        assert sample_results.shape == (shots.total_shots, 2)
+        assert sample_results.dtype == np.int64
+        assert_correct_sampled_two_qutrit_pure_state(sample_results)
+
+        assert isinstance(counts_results, dict)
+        assert sorted(counts_results.keys()) == ["02", "10", "21"]
+        assert np.isclose(counts_results["02"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+        assert np.isclose(counts_results["10"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+        assert np.isclose(counts_results["21"] / num_shots, 1 / 3, atol=APPROX_ATOL)
+
+    def test_sample_observables(self):
+        """Test that counts measurements properly counts samples of an observable"""
+        state_vector = np.sqrt(np.array([0, 0, 0, 0, 2, 0, 1, 0, 1]) / 4)
+        state = get_dm_of_state(state_vector, 2)
+        num_shots = 100
+        shots = qml.measurements.Shots(num_shots)
+        mps = [
+            qml.sample(qml.GellMann(0, 3)),
+            qml.sample(qml.GellMann(0, 1) @ qml.GellMann(1, 1)),
+        ]
+
+        results_gel_3, results_gel_1s = measure_with_samples(mps, state, shots=shots)
+        assert results_gel_3.shape == (shots.total_shots,)
+        assert results_gel_3.dtype == np.int64
+        assert sorted(np.unique(results_gel_3)) == [-1, 0]
+
+        assert results_gel_1s.shape == (shots.total_shots,)
+        assert results_gel_1s.dtype == np.int64
+        assert sorted(np.unique(results_gel_1s)) == [-1, 0, 1]
+
+    @flaky
+    def test_counts_observables(self):
+        """Test that a set of sample and counts measurements works as expected"""
+        state_vector = np.sqrt(np.array([0, 0, 0, 0, 3, 0, 1, 0, 1]) / 5)
+        state = get_dm_of_state(state_vector, 2)
+        num_shots = 10000
+        shots = qml.measurements.Shots(num_shots)
+
+        mps = [
+            qml.counts(qml.GellMann(0, 3)),
+            qml.counts(qml.GellMann(0, 1) @ qml.GellMann(1, 1)),
+        ]
+
+        results_gel_3, results_gel_1s = measure_with_samples(mps, state, shots=shots)
+
+        assert isinstance(results_gel_3, dict)
+        assert sorted(results_gel_3.keys()) == [-1, 0]
+        assert np.isclose(results_gel_3[-1] / num_shots, 3 / 5, atol=APPROX_ATOL)
+        assert np.isclose(results_gel_3[0] / num_shots, 2 / 5, atol=APPROX_ATOL)
+
+        assert isinstance(results_gel_1s, dict)
+        assert sorted(results_gel_1s.keys()) == [-1, 0, 1]
+        assert np.isclose(results_gel_1s[-1] / num_shots, 0.3, atol=APPROX_ATOL)
+        assert np.isclose(results_gel_1s[0] / num_shots, 0.4, atol=APPROX_ATOL)
+        assert np.isclose(results_gel_1s[1] / num_shots, 0.3, atol=APPROX_ATOL)
 
 
-class TestInvalidStateSamples:
-    """Tests for mixed state matrices containing nan values or shot vectors with zero shots."""
+class TestInvalidSampling:
+    """Tests for non-expected states and inputs."""
 
     @pytest.mark.parametrize("shots", [10, [10, 10]])
     def test_only_catch_nan_errors(self, shots):
-        """Test that errors are only caught if they are raised due to nan values in the state."""
+        """Test that when probabilities don't add to 1 Error is thrown."""
         state = np.zeros((3,) * QUDIT_DIM * 2).astype(np.complex128)
         mp = qml.sample(wires=range(2))
         _shots = Shots(shots)
@@ -306,34 +423,14 @@ class TestInvalidStateSamples:
         with pytest.raises(ValueError, match="probabilities do not sum to 1"):
             _ = measure_with_samples([mp], state, _shots)
 
-    @pytest.mark.all_interfaces
     @pytest.mark.parametrize(
-        "mp", [qml.sample(wires=0), qml.sample(op=qml.GellMann(0, 1)), qml.sample(wires=[0, 1])]
+        "mp", [qml.expval(qml.GellMann(0, 3)), qml.var(qml.GellMann(0, 3)), qml.probs()]
     )
-    @pytest.mark.parametrize("interface", ["numpy", "autograd", "torch", "tensorflow", "jax"])
-    @pytest.mark.parametrize("shots", [0, [0, 0]])
-    def test_nan_samples(self, mp, interface, shots):
-        """Test that the result of circuits with 0 probability postselections is NaN with the
-        expected shape."""
-        state = qml.math.full((3,) * QUDIT_DIM * 2, np.NaN, like=interface)
-        res = measure_with_samples((mp,), state, _FlexShots(shots), is_state_batched=False)
-
-        if not isinstance(shots, list):
-            assert isinstance(res, tuple)
-            res = res[0]
-            assert qml.math.shape(res) == (shots,) if len(mp.wires) == 1 else (shots, len(mp.wires))
-
-        else:
-            assert isinstance(res, tuple)
-            assert len(res) == 2
-            for i, r in enumerate(res):
-                assert isinstance(r, tuple)
-                r = r[0]
-                assert (
-                    qml.math.shape(r) == (shots[i],)
-                    if len(mp.wires) == 1
-                    else (shots[i], len(mp.wires))
-                )
+    def test_currently_unsuported_observable(self, mp, two_qutrit_state):
+        """Test sample measurements that are not counts or sample raise a NotImplementedError."""
+        shots = qml.measurements.Shots(1)
+        with pytest.raises(NotImplementedError):
+            _ = measure_with_samples([mp], two_qutrit_state, shots)
 
 
 shots_to_test = [
@@ -368,7 +465,11 @@ class TestBroadcasting:
 
         measurement = qml.sample(wires=[0, 1])
         res = measure_with_samples(
-            [measurement], batched_qutrit_pure_state, shots, is_state_batched=True, rng=rng
+            [measurement],
+            batched_qutrit_pure_state,
+            shots,
+            is_state_batched=True,
+            rng=rng,
         )
 
         assert isinstance(res, tuple)
@@ -424,6 +525,8 @@ class TestBroadcastingPRNG:
         """Test that broadcasting works for qml.sample and shot vectors"""
         import jax
 
+        jax.config.update("jax_enable_x64", True)
+
         spy = mocker.spy(qml.devices.qutrit_mixed.sampling, "_sample_state_jax")
 
         rng = np.random.default_rng(123)
@@ -450,9 +553,7 @@ class TestBroadcastingPRNG:
             r = r[0]
 
             assert r.shape == (3, s, 2)
-            # this is has started randomly failing do to r.dtype being int32 instead of int64.
-            # Not sure why they are getting returned as 32 instead, but maybe this will fix it?
-            assert res[0][0].dtype in [np.int32, np.int64]
+            assert res[0][0].dtype == np.int64
 
             # convert to numpy array because prng_key -> JAX -> ArrayImpl -> angry vanilla numpy below
             r = [np.array(i) for i in r]

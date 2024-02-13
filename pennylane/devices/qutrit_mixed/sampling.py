@@ -18,6 +18,7 @@ from typing import List, Union
 
 import numpy as np
 import pennylane as qml
+from pennylane import math
 from pennylane.measurements import (
     Shots,
     SampleMeasurement,
@@ -32,6 +33,10 @@ from .apply_operation import apply_operation
 
 
 def _group_measurements(mps: List[Union[SampleMeasurement]]):
+    """Groups measurements such that:
+    - measurements without observables are done together
+    - measurements with observables are done separately
+    """
     if len(mps) == 1:
         return [mps], [[0]]
 
@@ -63,17 +68,59 @@ def _group_measurements(mps: List[Union[SampleMeasurement]]):
 def _apply_diagonalizing_gates(
     mps: List[SampleMeasurement], state: np.ndarray, is_state_batched: bool = False
 ):
-    if len(mps) == 1:
-        diagonalizing_gates = mps[0].diagonalizing_gates()
-    elif all(mp.obs for mp in mps):
-        diagonalizing_gates = qml.pauli.diagonalize_qwc_pauli_words([mp.obs for mp in mps])[0]
-    else:
-        diagonalizing_gates = []
-
-    for op in diagonalizing_gates:
-        state = apply_operation(op, state, is_state_batched=is_state_batched)
+    """Applies diagonalizing gates when necessary"""
+    if len(mps) == 1 and mps[0].obs:
+        for op in mps[0].diagonalizing_gates():
+            state = apply_operation(op, state, is_state_batched=is_state_batched)
 
     return state
+
+
+def _process_counts_samples(mp, samples, wires):
+    """Processes a shot of samples and counts the results."""
+    samples_processed = _process_samples(mp, samples, wires)
+
+    mp_has_obs = bool(mp.obs)
+    observables, counts = np.unique(samples_processed, return_counts=True, axis=-2 + mp_has_obs)
+    if not mp_has_obs:
+        observables = ["".join(observable.astype("str")) for observable in observables]
+    return dict(zip(observables, counts))
+
+
+def _process_samples(
+    mp,
+    samples,
+    wire_order,
+):
+    wire_map = dict(zip(wire_order, range(len(wire_order))))
+    mapped_wires = [wire_map[w] for w in mp.wires]
+
+    if mapped_wires:
+        # if wires are provided, then we only return samples from those wires
+        samples = samples[..., mapped_wires]
+
+    num_wires = samples.shape[-1]  # wires is the last dimension
+
+    if mp.obs is None:
+        # if no observable was provided then return the raw samples
+        return samples
+
+    # Replace the basis state in the computational basis with the correct eigenvalue.
+    # Extract only the columns of the basis samples required based on ``wires``.
+    powers_of_two = QUDIT_DIM ** qml.math.arange(num_wires)[::-1]
+    indices = samples @ powers_of_two
+    indices = qml.math.array(indices)  # Add np.array here for Jax support.
+    try:
+        # This also covers statistics for mid-circuit measurements manipulated using
+        # arithmetic operators
+        samples = mp.eigvals()[indices]
+    except qml.operation.EigvalsUndefinedError as e:
+        # if observable has no info on eigenvalues, we cannot return this measurement
+        raise qml.operation.EigvalsUndefinedError(
+            f"Cannot compute samples of {mp.obs.name}."
+        ) from e
+
+    return samples
 
 
 def _measure_with_samples_diagonalizing_gates(
@@ -84,8 +131,7 @@ def _measure_with_samples_diagonalizing_gates(
     rng=None,
     prng_key=None,
 ) -> TensorLike:
-    """
-    Returns the samples of the measurement process performed on the given state,
+    """Returns the samples of the measurement process performed on the given state,
     by rotating the state into the measurement basis using the diagonalizing gates
     given by the measurement process.
 
@@ -113,10 +159,10 @@ def _measure_with_samples_diagonalizing_gates(
         processed = []
         for mp in mps:
             if isinstance(mp, SampleMP):
-                res = mp.process_samples(samples, wires)
-                res = qml.math.squeeze(res)
+                res = _process_samples(mp, samples, wires)
+                res = math.squeeze(res)
             elif isinstance(mp, CountsMP):
-                res = mp.process_samples(samples, wires)
+                res = _process_counts_samples(mp, samples, wires)
             else:
                 raise NotImplementedError
             processed.append(res)
@@ -129,93 +175,86 @@ def _measure_with_samples_diagonalizing_gates(
             # Like default.qubit currently calling sample_state for each shot entry,
             # but it may be better to call sample_state just once with total_shots,
             # then use the shot_range keyword argument
-            try:
-                samples = sample_state(
-                    state,
-                    shots=s,
-                    is_state_batched=is_state_batched,
-                    wires=wires,
-                    rng=rng,
-                    prng_key=prng_key,
-                )
-            except ValueError as e:
-                if str(e) != "probabilities contain NaN":
-                    raise e
-                samples = qml.math.full((s, len(wires)), 0)
-
+            samples = sample_state(
+                state,
+                shots=s,
+                is_state_batched=is_state_batched,
+                wires=wires,
+                rng=rng,
+                prng_key=prng_key,
+            )
             processed_samples.append(_process_single_shot(samples))
 
         return tuple(zip(*processed_samples))
 
-    try:
-        samples = sample_state(
-            state,
-            shots=shots.total_shots,
-            is_state_batched=is_state_batched,
-            wires=wires,
-            rng=rng,
-            prng_key=prng_key,
-        )
-    except ValueError as e:
-        if str(e) != "probabilities contain NaN":
-            raise e
-        samples = qml.math.full((shots.total_shots, len(wires)), 0)
+    samples = sample_state(
+        state,
+        shots=shots.total_shots,
+        is_state_batched=is_state_batched,
+        wires=wires,
+        rng=rng,
+        prng_key=prng_key,
+    )
 
     return _process_single_shot(samples)
 
 
 # pylint:disable = too-many-arguments
-def measure_with_samples(
-    mps: List[Union[SampleMP, CountsMP]],
-    state: np.ndarray,
-    shots: Shots,
+def _sample_state_jax(
+    state,
+    shots: int,
+    prng_key,
     is_state_batched: bool = False,
-    rng=None,
-    prng_key=None,
-) -> List[TensorLike]:
-    """
-    Returns the samples of the measurement process performed on the given state.
-    This function assumes that the user-defined wire labels in the measurement process
-    have already been mapped to integer wires used in the device.
+    wires=None,
+) -> np.ndarray:
+    """Returns a series of samples of a state for the JAX interface based on the PRNG.
 
     Args:
-        mps (List[SampleMP]):
-            The sample measurements to perform
-        state (np.ndarray[complex]): The state vector to sample from
-        shots (Shots): The number of samples to take
+        state (array[complex]): A state vector to be sampled
+        shots (int): The number of samples to take
+        prng_key (jax.random.PRNGKey): A``jax.random.PRNGKey``. This is
+            the key to the JAX pseudo random number generator.
         is_state_batched (bool): whether the state is batched or not
-        rng (Union[None, int, array_like[int], SeedSequence, BitGenerator, Generator]): A
-            seed-like parameter matching that of ``seed`` for ``numpy.random.default_rng``.
-            If no value is provided, a default RNG will be used.
-        prng_key (Optional[jax.random.PRNGKey]): An optional ``jax.random.PRNGKey``. This is
-            the key to the JAX pseudo random number generator. Only for simulation using JAX.
+        wires (Sequence[int]): The wires to sample
 
     Returns:
-        List[TensorLike[Any]]: Sample measurement results
+        ndarray[int]: Sample values of the shape (shots, num_wires)
     """
+    # pylint: disable=import-outside-toplevel
+    import jax
+    import jax.numpy as jnp
 
-    groups, indices = _group_measurements(mps)
+    key = prng_key
 
-    all_res = []
-    for group in groups:
-        all_res.extend(
-            _measure_with_samples_diagonalizing_gates(
-                group, state, shots, is_state_batched=is_state_batched, rng=rng, prng_key=prng_key
-            )
+    total_indices = get_num_wires(state, is_state_batched)
+    state_wires = qml.wires.Wires(range(total_indices))
+
+    wires_to_sample = wires or state_wires
+    num_wires = len(wires_to_sample)
+    basis_states = np.arange(QUDIT_DIM**num_wires)
+
+    with qml.queuing.QueuingManager.stop_recording():
+        probs = measure(qml.probs(wires=wires_to_sample), state, is_state_batched)
+
+    if is_state_batched:
+        # Produce separate keys for each of the probabilities along the broadcasted axis
+        keys = []
+        for _ in state:
+            key, subkey = jax.random.split(key)
+            keys.append(subkey)
+        samples = jnp.array(
+            [
+                jax.random.choice(_key, basis_states, shape=(shots,), p=prob)
+                for _key, prob in zip(keys, probs)
+            ]
         )
+    else:
+        samples = jax.random.choice(key, basis_states, shape=(shots,), p=probs)
 
-    flat_indices = [_i for i in indices for _i in i]
-
-    # reorder results
-    sorted_res = tuple(
-        res for _, res in sorted(list(enumerate(all_res)), key=lambda r: flat_indices[r[0]])
-    )
-
-    # put the shot vector axis before the measurement axis
-    if shots.has_partitioned_shots:
-        sorted_res = tuple(zip(*sorted_res))
-
-    return sorted_res
+    res = np.zeros(samples.shape + (num_wires,), dtype=np.int64)
+    for i in range(num_wires):
+        res[..., -(i + 1)] = (samples // (QUDIT_DIM**i)) % QUDIT_DIM
+    return res
 
 
 def sample_state(
@@ -226,8 +265,7 @@ def sample_state(
     rng=None,
     prng_key=None,
 ) -> np.ndarray:
-    """
-    Returns a series of samples of a state.
+    """Returns a series of samples of a state.
 
     Args:
         state (array[complex]): A state vector to be sampled
@@ -272,60 +310,58 @@ def sample_state(
     return res
 
 
-# pylint:disable = unused-argument
-def _sample_state_jax(
-    state,
-    shots: int,
-    prng_key,
+def measure_with_samples(
+    mps: List[Union[SampleMP, CountsMP]],
+    state: np.ndarray,
+    shots: Shots,
     is_state_batched: bool = False,
-    wires=None,
-) -> np.ndarray:
-    """
-    Returns a series of samples of a state for the JAX interface based on the PRNG.
+    rng=None,
+    prng_key=None,
+) -> List[TensorLike]:
+    """Returns the samples of the measurement process performed on the given state.
+    This function assumes that the user-defined wire labels in the measurement process
+    have already been mapped to integer wires used in the device.
 
     Args:
-        state (array[complex]): A state vector to be sampled
-        shots (int): The number of samples to take
-        prng_key (jax.random.PRNGKey): A``jax.random.PRNGKey``. This is
-            the key to the JAX pseudo random number generator.
+        mps (List[SampleMP]):
+            The sample measurements to perform
+        state (np.ndarray[complex]): The state vector to sample from
+        shots (Shots): The number of samples to take
         is_state_batched (bool): whether the state is batched or not
-        wires (Sequence[int]): The wires to sample
+        rng (Union[None, int, array_like[int], SeedSequence, BitGenerator, Generator]): A
+            seed-like parameter matching that of ``seed`` for ``numpy.random.default_rng``.
+            If no value is provided, a default RNG will be used.
+        prng_key (Optional[jax.random.PRNGKey]): An optional ``jax.random.PRNGKey``. This is
+            the key to the JAX pseudo random number generator. Only for simulation using JAX.
 
     Returns:
-        ndarray[int]: Sample values of the shape (shots, num_wires)
+        List[TensorLike[Any]]: List of all sample measurement results
     """
-    # pylint: disable=import-outside-toplevel
-    import jax
-    import jax.numpy as jnp
 
-    key = prng_key
+    groups, indices = _group_measurements(mps)
 
-    total_indices = get_num_wires(state, is_state_batched)
-    state_wires = qml.wires.Wires(range(total_indices))
-
-    wires_to_sample = wires or state_wires
-    num_wires = len(wires_to_sample)
-    basis_states = np.arange(QUDIT_DIM**num_wires)
-
-    with qml.queuing.QueuingManager.stop_recording():
-        probs = measure(qml.probs(wires=wires_to_sample), state, is_state_batched)
-
-    if is_state_batched:
-        # Produce separate keys for each of the probabilities along the broadcasted axis
-        keys = []
-        for _ in state:
-            key, subkey = jax.random.split(key)
-            keys.append(subkey)
-        samples = jnp.array(
-            [
-                jax.random.choice(_key, basis_states, shape=(shots,), p=prob)
-                for _key, prob in zip(keys, probs)
-            ]
+    all_res = []
+    for group in groups:
+        all_res.extend(
+            _measure_with_samples_diagonalizing_gates(
+                group,
+                state,
+                shots,
+                is_state_batched=is_state_batched,
+                rng=rng,
+                prng_key=prng_key,
+            )
         )
-    else:
-        samples = jax.random.choice(key, basis_states, shape=(shots,), p=probs)
 
-    res = jnp.zeros(samples.shape + (num_wires,), dtype=np.int64)
-    for i in range(num_wires):
-        res[..., -(i + 1)] = (samples // (QUDIT_DIM**i)) % QUDIT_DIM
-    return res
+    flat_indices = [_i for i in indices for _i in i]
+
+    # reorder results
+    sorted_res = tuple(
+        res for _, res in sorted(list(enumerate(all_res)), key=lambda r: flat_indices[r[0]])
+    )
+
+    # put the shot vector axis before the measurement axis
+    if shots.has_partitioned_shots:
+        sorted_res = tuple(zip(*sorted_res))
+
+    return sorted_res
