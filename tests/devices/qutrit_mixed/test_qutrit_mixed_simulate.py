@@ -23,7 +23,8 @@ from pennylane.devices.qutrit_mixed.simulate import simulate, get_final_state, m
 
 
 def expected_TRX_circ_expval_values(phi, subspace):
-    """TODO helper"""
+    """Find the expect-values of GellManns 2,3,5,8
+    on a circuit with a TRX gate"""
     if subspace == (0, 1):
         gellmann_2 = -np.sin(phi)
         gellmann_3 = np.cos(phi)
@@ -38,7 +39,8 @@ def expected_TRX_circ_expval_values(phi, subspace):
 
 
 def expected_TRX_circ_expval_jacobians(phi, subspace):
-    """TODO helper"""
+    """Find the Jacobians of expect-values of GellManns 2,3,5,8
+    on a circuit with a TRX gate"""
     if subspace == (0, 1):
         gellmann_2 = -np.cos(phi)
         gellmann_3 = -np.sin(phi)
@@ -53,7 +55,7 @@ def expected_TRX_circ_expval_jacobians(phi, subspace):
 
 
 def expected_TRX_circ_state(phi, subspace):
-    """TODO helper"""
+    """Find the state after applying TRX gate on |0>"""
     expected_vector = np.array([0, 0, 0], dtype=complex)
     expected_vector[subspace[0]] = np.cos(phi / 2)
     expected_vector[subspace[1]] = -1j * np.sin(phi / 2)
@@ -61,11 +63,11 @@ def expected_TRX_circ_state(phi, subspace):
 
 
 class TestCurrentlyUnsupportedCases:
-    """TODO"""
+    """Test currently unsupported cases, such as sampling expval or samples without shots"""
 
     # pylint: disable=too-few-public-methods
     def test_sample_based_observable(self):
-        """Test sample-only measurements raise a notimplementedError."""
+        """Test sample-only measurements raise a NotImplementedError."""
 
         qs = qml.tape.QuantumScript(measurements=[qml.sample(wires=0)])
         with pytest.raises(NotImplementedError):
@@ -75,7 +77,7 @@ class TestCurrentlyUnsupportedCases:
         "mp", [qml.probs(0), qml.expval(qml.GellMann(0, 2)), qml.var(qml.GellMann(1, 2))]
     )
     def test_invalid_samples(self, mp):
-        """TODO"""
+        """Test Sampling MeasurementProcesses that are currently unsupported on this device"""
         qs = qml.tape.QuantumScript(ops=[qml.TAdd(wires=(0, 1))], measurements=[mp], shots=10)
         with pytest.raises(NotImplementedError):
             simulate(qs)
@@ -118,7 +120,7 @@ class TestBasicCircuit:
 
     @staticmethod
     def get_TRX_quantum_script(phi, subspace):
-        """TODO helper"""
+        """Get the quantum script where TRX is applied then GellMann observables are measured"""
         ops = [qml.TRX(phi, wires=0, subspace=subspace)]
         obs = [
             qml.expval(qml.GellMann(0, 2)),
@@ -265,6 +267,7 @@ class TestBasicCircuit:
         assert qml.math.allclose(res, -1)
 
 
+@pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
 class TestBroadcasting:
     """Test that simulate works with broadcasted parameters"""
 
@@ -276,47 +279,15 @@ class TestBroadcasting:
     #  - 1 broadcasting with extra measurement wires
     # TODO total = 5 funcs
 
-    def test_broadcasted_prep_state(self, subspace):
-        """Test that simulate works for state measurements
-        when the state prep has broadcasted parameters"""
-        x = np.array(1.2)
-
-        ops = [qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
-        measurements = [qml.expval(qml.GellMann(i, 3)) for i in range(2)]
-        prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]  # TODO fix for qutrit_mixed
-
-        qs = qml.tape.QuantumScript(prep + ops, measurements)
-        res = simulate(qs)
-
-        assert isinstance(res, tuple)
-        assert len(res) == 2
-        assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
-        assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
-
-        state, is_state_batched = get_final_state(qs)
-        res = measure_final_state(qs, state, is_state_batched)
-        expected_state = np.array(
-            [
-                [np.cos(x / 2), 0, 0, np.sin(x / 2)],
-                [0, np.cos(x / 2), np.sin(x / 2), 0],
-                [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
-                [0, -np.sin(x / 2), np.cos(x / 2), 0],
-            ]
-        ).reshape((4, 2, 2))
-
-        assert np.allclose(state, expected_state)
-        assert is_state_batched
-        assert isinstance(res, tuple)
-        assert len(res) == 2
-        assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
-        assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
-
     def test_broadcasted_op_state(self, subspace):
         """Test that simulate works for state measurements
         when an operation has broadcasted parameters"""
         x = np.array([0.8, 1.0, 1.2, 1.4])
-
-        ops = [qml.PauliX(wires=1), qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        ops = [
+            qml.TRX(np.pi, wires=1, subpace=subspace),
+            qml.TRY(x, wires=0, subspace=subspace),
+            qml.TAdd(wires=[0, 1]),
+        ]
         measurements = [qml.expval(qml.GellMann(i, 3)) for i in range(2)]
 
         qs = qml.tape.QuantumScript(ops, measurements)
@@ -341,56 +312,16 @@ class TestBroadcasting:
         assert np.allclose(res[0], np.cos(x))
         assert np.allclose(res[1], -np.cos(x))
 
-    def test_broadcasted_prep_sample(self, subspace):
-        """Test that simulate works for sample measurements
-        when the state prep has broadcasted parameters"""
-        x = np.array(1.2)
-
-        ops = [qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
-        measurements = [qml.counts(qml.GellMann(i, 3)) for i in range(2)]
-        prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]
-
-        qs = qml.tape.QuantumScript(prep + ops, measurements, shots=qml.measurements.Shots(10000))
-        res = simulate(qs, rng=123)
-
-        assert isinstance(res, tuple)
-        assert len(res) == 2
-        assert np.allclose(
-            res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
-        )
-        assert np.allclose(
-            res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
-        )
-
-        state, is_state_batched = get_final_state(qs)
-        res = measure_final_state(qs, state, is_state_batched, rng=123)
-        expected_state = np.array(
-            [
-                [np.cos(x / 2), 0, 0, np.sin(x / 2)],
-                [0, np.cos(x / 2), np.sin(x / 2), 0],
-                [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
-                [0, -np.sin(x / 2), np.cos(x / 2), 0],
-            ]
-        ).reshape((4, 2, 2))
-
-        assert np.allclose(state, expected_state)
-        assert is_state_batched
-        assert isinstance(res, tuple)
-        assert len(res) == 2
-        assert np.allclose(
-            res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
-        )
-        assert np.allclose(
-            res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
-        )
-        pass
-
     def test_broadcasted_op_sample(self, subspace):
         """Test that simulate works for sample measurements
         when an operation has broadcasted parameters"""
         x = np.array([0.8, 1.0, 1.2, 1.4])
 
-        ops = [qml.PauliX(wires=1), qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        ops = [
+            qml.TRX(np.pi, wires=1, subpace=subspace),
+            qml.TRY(x, wires=0, subspace=subspace),
+            qml.TAdd(wires=[0, 1]),
+        ]
         measurements = [qml.counts(qml.GellMann(i, 3)) for i in range(2)]
 
         qs = qml.tape.QuantumScript(ops, measurements, shots=qml.measurements.Shots(10000))
@@ -421,7 +352,11 @@ class TestBroadcasting:
         spy = mocker.spy(qml, "map_wires")
         x = np.array([0.8, 1.0, 1.2, 1.4])
 
-        ops = [qml.PauliX(wires=2), qml.TRY(x, wires=1, subspace=subspace), qml.CNOT(wires=[1, 2])]
+        ops = [
+            qml.TRX(np.pi, wires=2, subpace=subspace),
+            qml.TRY(x, wires=1, subspace=subspace),
+            qml.TAdd(wires=[1, 2]),
+        ]
         measurements = [qml.expval(qml.PauliZ(i)) for i in range(3)]
 
         qs = qml.tape.QuantumScript(ops, measurements)
@@ -450,7 +385,8 @@ class TestDebugger:
 
     @staticmethod
     def get_debugger_quantum_script(phi, subspace):
-        """TODO helper"""
+        """Get the quantum script with debugging where TRX is applied
+        then GellMann observables are measured"""
         ops = [
             qml.Snapshot(),
             qml.TRX(phi, wires=0, subspace=subspace),
@@ -782,7 +718,7 @@ class TestSampleMeasurements:
 
 
 class TestOperatorArithmetic:  # TODO check if necessary
-    """TODO add docstring"""
+    """Test if operation Arithmatic works with non-integer wires"""
 
     # TODO:
     #  - testing op arithmatic all-interfaces
@@ -790,7 +726,7 @@ class TestOperatorArithmetic:  # TODO check if necessary
 
     @staticmethod
     def get_op_arithmatic_quantum_script(phi):
-        """TODO"""
+        """Get the quantum script testing operator arithmatic"""
         ops = [
             qml.GellMann("a", 1),
             qml.GellMann("b", 1),
