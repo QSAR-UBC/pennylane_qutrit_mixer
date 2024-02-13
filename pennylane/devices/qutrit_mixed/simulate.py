@@ -16,7 +16,6 @@
 from typing import Optional
 
 from numpy.random import default_rng
-import numpy as np
 
 import pennylane as qml
 from pennylane.typing import Result
@@ -47,56 +46,6 @@ INTERFACE_TO_LIKE = {
     "tensorflow-autograph": "tensorflow",
     "tf-autograph": "tensorflow",
 }
-
-
-# class _FlexShots(qml.measurements.Shots):
-#     """Shots class that allows zero shots."""
-#
-#     # pylint: disable=super-init-not-called
-#     def __init__(self, shots=None):
-#         if isinstance(shots, int):
-#             self.total_shots = shots
-#             self.shot_vector = (qml.measurements.ShotCopies(shots, 1),)
-#         else:
-#             self.__all_tuple_init__([s if isinstance(s, tuple) else (s, 1) for s in shots])
-#
-#         self._frozen = True
-
-
-def _postselection_postprocess(state, is_state_batched, shots):
-    """Update state after projector is applied."""
-    if is_state_batched:
-        raise ValueError(
-            "Cannot postselect on circuits with broadcasting. Use the "
-            "qml.transforms.broadcast_expand transform to split a broadcasted "
-            "tape into multiple non-broadcasted tapes before executing if "
-            "postselection is used."
-        )
-
-    # The floor function is being used here so that a norm very close to zero becomes exactly
-    # equal to zero so that the state can become invalid. This way, execution can continue, and
-    # bad postselection gives results that are invalid rather than results that look valid but
-    # are incorrect.
-    norm = qml.math.norm(state)
-
-    if not qml.math.is_abstract(state) and qml.math.allclose(norm, 0.0):
-        norm = 0.0
-
-    if shots:
-        # Clip the number of shots using a binomial distribution using the probability of
-        # measuring the postselected state.
-        postselected_shots = (
-            [np.random.binomial(s, float(norm**2)) for s in shots]
-            if not qml.math.is_abstract(norm)
-            else shots
-        )
-
-        # # _FlexShots is used here since the binomial distribution could result in zero
-        # # valid samples
-        # shots = _FlexShots(postselected_shots)
-
-    state = state / norm
-    return state, shots
 
 
 def get_final_state(circuit, debugger=None, interface=None):
