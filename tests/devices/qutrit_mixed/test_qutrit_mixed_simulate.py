@@ -60,27 +60,25 @@ def expected_TRX_circ_state(phi, subspace):
     return np.outer(expected_vector, np.conj(expected_vector))
 
 
-def get_TRX_quantum_script(phi, subspace):
-    """TODO helper"""
-    ops = [qml.TRX(phi, wires=0, subspace=subspace)]
-    obs = [
-        qml.expval(qml.GellMann(0, 2)),
-        qml.expval(qml.GellMann(0, 3)),
-        qml.expval(qml.GellMann(0, 5)),
-        qml.expval(qml.GellMann(0, 8)),
-    ]
-    return qml.tape.QuantumScript(ops, obs)
-
-
 class TestCurrentlyUnsupportedCases:
+    """TODO"""
+
     # pylint: disable=too-few-public-methods
     def test_sample_based_observable(self):
         """Test sample-only measurements raise a notimplementedError."""
 
-        # qs = qml.tape.QuantumScript(measurements=[qml.sample(wires=0)])
-        # with pytest.raises(NotImplementedError):
-        #     simulate(qs)
-        pass
+        qs = qml.tape.QuantumScript(measurements=[qml.sample(wires=0)])
+        with pytest.raises(NotImplementedError):
+            simulate(qs)
+
+    @pytest.mark.parametrize(
+        "mp", [qml.probs(0), qml.expval(qml.GellMann(0, 2)), qml.var(qml.GellMann(1, 2))]
+    )
+    def test_invalid_samples(self, mp):
+        """TODO"""
+        qs = qml.tape.QuantumScript(ops=[qml.TAdd(wires=(0, 1))], measurements=[mp], shots=10)
+        with pytest.raises(NotImplementedError):
+            simulate(qs)
 
 
 def test_custom_operation():
@@ -100,13 +98,13 @@ def test_custom_operation():
     assert qml.math.allclose(result, -np.sqrt(4 / 3))
 
 
-class TestStatePrepBase:
+class TestStatePrepBase:  # TODO check against qubit
     """Tests integration with various state prep methods."""
 
     def test_basis_state(self):
         """Test that the BasisState operator prepares the desired state."""
         qs = qml.tape.QuantumScript(
-            ops=[qml.QutritBasisState([2, 1], wires=(0, 1))],
+            ops=[qml.QutritBasisState((2, 1), wires=(0, 1))],
             measurements=[qml.probs(wires=(0, 1, 2))],
         )
         probs = simulate(qs)
@@ -118,13 +116,26 @@ class TestStatePrepBase:
 class TestBasicCircuit:
     """Tests a basic circuit with one rx gate and two simple expectation values."""
 
+    @staticmethod
+    def get_TRX_quantum_script(phi, subspace):
+        """TODO helper"""
+        ops = [qml.TRX(phi, wires=0, subspace=subspace)]
+        obs = [
+            qml.expval(qml.GellMann(0, 2)),
+            qml.expval(qml.GellMann(0, 3)),
+            qml.expval(qml.GellMann(0, 5)),
+            qml.expval(qml.GellMann(0, 8)),
+        ]
+        return qml.tape.QuantumScript(ops, obs)
+
     @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
     def test_basic_circuit_numpy(self, subspace):
         """Test execution with a basic circuit."""
+
         phi = np.array(0.397)
-        qs = get_TRX_quantum_script(phi, subspace)
+
+        qs = self.get_TRX_quantum_script(phi, subspace)
         result = simulate(qs)
-        print(result)
 
         expected_measurements = expected_TRX_circ_expval_values(phi, subspace)
         assert isinstance(result, tuple)
@@ -147,10 +158,11 @@ class TestBasicCircuit:
     @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
     def test_autograd_results_and_backprop(self, subspace):
         """Tests execution and gradients with autograd"""
+
         phi = qml.numpy.array(-0.52)
 
         def f(x):
-            qs = get_TRX_quantum_script(x, subspace)
+            qs = self.get_TRX_quantum_script(x, subspace)
             return qml.numpy.array(simulate(qs))
 
         result = f(phi)
@@ -166,12 +178,13 @@ class TestBasicCircuit:
     @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
     def test_jax_results_and_backprop(self, use_jit, subspace):
         """Tests exeuction and gradients with jax."""
+
         import jax
 
         phi = jax.numpy.array(0.678)
 
         def f(x):
-            qs = get_TRX_quantum_script(x, subspace)
+            qs = self.get_TRX_quantum_script(x, subspace)
             return simulate(qs)
 
         if use_jit:
@@ -195,7 +208,7 @@ class TestBasicCircuit:
         phi = torch.tensor(-0.526, requires_grad=True)
 
         def f(x):
-            qs = get_TRX_quantum_script(x, subspace)
+            qs = self.get_TRX_quantum_script(x, subspace)
             return simulate(qs)
 
         result = f(phi)
@@ -223,7 +236,7 @@ class TestBasicCircuit:
         phi = tf.Variable(4.873)
 
         with tf.GradientTape(persistent=True) as grad_tape:
-            qs = get_TRX_quantum_script(phi, subspace)
+            qs = self.get_TRX_quantum_script(phi, subspace)
             result = simulate(qs)
 
         expected = expected_TRX_circ_expval_values(phi, subspace)
@@ -244,8 +257,10 @@ class TestBasicCircuit:
     @pytest.mark.parametrize("op", [qml.TRX(np.pi, 0), qml.QutritBasisState([1], 0)])
     def test_result_has_correct_interface(self, op):
         """Test that even if no interface parameters are given, result is correct."""
+
         qs = qml.tape.QuantumScript([op], [qml.expval(qml.GellMann(0, 3))])
         res = simulate(qs, interface="jax")
+
         assert qml.math.get_interface(res) == "jax"
         assert qml.math.allclose(res, -1)
 
@@ -261,182 +276,167 @@ class TestBroadcasting:
     #  - 1 broadcasting with extra measurement wires
     # TODO total = 5 funcs
 
-    def test_broadcasted_prep_state(self):
+    def test_broadcasted_prep_state(self, subspace):
         """Test that simulate works for state measurements
         when the state prep has broadcasted parameters"""
-        # x = np.array(1.2)
-        #
-        # ops = [qml.RY(x, wires=0), qml.CNOT(wires=[0, 1])]
-        # measurements = [qml.expval(qml.PauliZ(i)) for i in range(2)]
-        # prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]
-        #
-        # qs = qml.tape.QuantumScript(prep + ops, measurements)
-        # res = simulate(qs)
-        #
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
-        # assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
-        #
-        # state, is_state_batched = get_final_state(qs)
-        # res = measure_final_state(qs, state, is_state_batched)
-        # expected_state = np.array(
-        #     [
-        #         [np.cos(x / 2), 0, 0, np.sin(x / 2)],
-        #         [0, np.cos(x / 2), np.sin(x / 2), 0],
-        #         [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
-        #         [0, -np.sin(x / 2), np.cos(x / 2), 0],
-        #     ]
-        # ).reshape((4, 2, 2))
-        #
-        # assert np.allclose(state, expected_state)
-        # assert is_state_batched
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
-        # assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
-        pass
+        x = np.array(1.2)
 
-    def test_broadcasted_op_state(self):
+        ops = [qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        measurements = [qml.expval(qml.GellMann(i, 3)) for i in range(2)]
+        prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]  # TODO fix for qutrit_mixed
+
+        qs = qml.tape.QuantumScript(prep + ops, measurements)
+        res = simulate(qs)
+
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
+        assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
+
+        state, is_state_batched = get_final_state(qs)
+        res = measure_final_state(qs, state, is_state_batched)
+        expected_state = np.array(
+            [
+                [np.cos(x / 2), 0, 0, np.sin(x / 2)],
+                [0, np.cos(x / 2), np.sin(x / 2), 0],
+                [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
+                [0, -np.sin(x / 2), np.cos(x / 2), 0],
+            ]
+        ).reshape((4, 2, 2))
+
+        assert np.allclose(state, expected_state)
+        assert is_state_batched
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]))
+        assert np.allclose(res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]))
+
+    def test_broadcasted_op_state(self, subspace):
         """Test that simulate works for state measurements
         when an operation has broadcasted parameters"""
-        # x = np.array([0.8, 1.0, 1.2, 1.4])
-        #
-        # ops = [qml.PauliX(wires=1), qml.RY(x, wires=0), qml.CNOT(wires=[0, 1])]
-        # measurements = [qml.expval(qml.PauliZ(i)) for i in range(2)]
-        #
-        # qs = qml.tape.QuantumScript(ops, measurements)
-        # res = simulate(qs)
-        #
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.cos(x))
-        # assert np.allclose(res[1], -np.cos(x))
-        #
-        # state, is_state_batched = get_final_state(qs)
-        # res = measure_final_state(qs, state, is_state_batched)
-        #
-        # expected_state = np.zeros((4, 2, 2))
-        # expected_state[:, 0, 1] = np.cos(x / 2)
-        # expected_state[:, 1, 0] = np.sin(x / 2)
-        #
-        # assert np.allclose(state, expected_state)
-        # assert is_state_batched
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.cos(x))
-        # assert np.allclose(res[1], -np.cos(x))
-        pass
+        x = np.array([0.8, 1.0, 1.2, 1.4])
 
-    def test_broadcasted_prep_sample(self):
+        ops = [qml.PauliX(wires=1), qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        measurements = [qml.expval(qml.GellMann(i, 3)) for i in range(2)]
+
+        qs = qml.tape.QuantumScript(ops, measurements)
+        res = simulate(qs)
+
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.cos(x))
+        assert np.allclose(res[1], -np.cos(x))
+
+        state, is_state_batched = get_final_state(qs)
+        res = measure_final_state(qs, state, is_state_batched)
+
+        expected_state = np.zeros((4, 2, 2))
+        expected_state[:, 0, 1] = np.cos(x / 2)
+        expected_state[:, 1, 0] = np.sin(x / 2)
+
+        assert np.allclose(state, expected_state)
+        assert is_state_batched
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.cos(x))
+        assert np.allclose(res[1], -np.cos(x))
+
+    def test_broadcasted_prep_sample(self, subspace):
         """Test that simulate works for sample measurements
         when the state prep has broadcasted parameters"""
-        # x = np.array(1.2)
-        #
-        # ops = [qml.RY(x, wires=0), qml.CNOT(wires=[0, 1])]
-        # measurements = [qml.expval(qml.PauliZ(i)) for i in range(2)]
-        # prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]
-        #
-        # qs = qml.tape.QuantumScript(prep + ops, measurements, shots=qml.measurements.Shots(10000))
-        # res = simulate(qs, rng=123)
-        #
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(
-        #     res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
-        # )
-        # assert np.allclose(
-        #     res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
-        # )
-        #
-        # state, is_state_batched = get_final_state(qs)
-        # res = measure_final_state(qs, state, is_state_batched, rng=123)
-        # expected_state = np.array(
-        #     [
-        #         [np.cos(x / 2), 0, 0, np.sin(x / 2)],
-        #         [0, np.cos(x / 2), np.sin(x / 2), 0],
-        #         [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
-        #         [0, -np.sin(x / 2), np.cos(x / 2), 0],
-        #     ]
-        # ).reshape((4, 2, 2))
-        #
-        # assert np.allclose(state, expected_state)
-        # assert is_state_batched
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(
-        #     res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
-        # )
-        # assert np.allclose(
-        #     res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
-        # )
+        x = np.array(1.2)
+
+        ops = [qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        measurements = [qml.counts(qml.GellMann(i, 3)) for i in range(2)]
+        prep = [qml.StatePrep(np.eye(4), wires=[0, 1])]
+
+        qs = qml.tape.QuantumScript(prep + ops, measurements, shots=qml.measurements.Shots(10000))
+        res = simulate(qs, rng=123)
+
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(
+            res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
+        )
+        assert np.allclose(
+            res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
+        )
+
+        state, is_state_batched = get_final_state(qs)
+        res = measure_final_state(qs, state, is_state_batched, rng=123)
+        expected_state = np.array(
+            [
+                [np.cos(x / 2), 0, 0, np.sin(x / 2)],
+                [0, np.cos(x / 2), np.sin(x / 2), 0],
+                [-np.sin(x / 2), 0, 0, np.cos(x / 2)],
+                [0, -np.sin(x / 2), np.cos(x / 2), 0],
+            ]
+        ).reshape((4, 2, 2))
+
+        assert np.allclose(state, expected_state)
+        assert is_state_batched
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(
+            res[0], np.array([np.cos(x), np.cos(x), -np.cos(x), -np.cos(x)]), atol=0.05
+        )
+        assert np.allclose(
+            res[1], np.array([np.cos(x), -np.cos(x), -np.cos(x), np.cos(x)]), atol=0.05
+        )
         pass
 
-    def test_broadcasted_op_sample(self):
+    def test_broadcasted_op_sample(self, subspace):
         """Test that simulate works for sample measurements
         when an operation has broadcasted parameters"""
-        # x = np.array([0.8, 1.0, 1.2, 1.4])
-        #
-        # ops = [qml.PauliX(wires=1), qml.RY(x, wires=0), qml.CNOT(wires=[0, 1])]
-        # measurements = [qml.expval(qml.PauliZ(i)) for i in range(2)]
-        #
-        # qs = qml.tape.QuantumScript(ops, measurements, shots=qml.measurements.Shots(10000))
-        # res = simulate(qs, rng=123)
-        #
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.cos(x), atol=0.05)
-        # assert np.allclose(res[1], -np.cos(x), atol=0.05)
-        #
-        # state, is_state_batched = get_final_state(qs)
-        # res = measure_final_state(qs, state, is_state_batched, rng=123)
-        #
-        # expected_state = np.zeros((4, 2, 2))
-        # expected_state[:, 0, 1] = np.cos(x / 2)
-        # expected_state[:, 1, 0] = np.sin(x / 2)
-        #
-        # assert np.allclose(state, expected_state)
-        # assert is_state_batched
-        # assert isinstance(res, tuple)
-        # assert len(res) == 2
-        # assert np.allclose(res[0], np.cos(x), atol=0.05)
-        # assert np.allclose(res[1], -np.cos(x), atol=0.05)
-        pass
+        x = np.array([0.8, 1.0, 1.2, 1.4])
 
-    def test_broadcasting_with_extra_measurement_wires(self, mocker):
+        ops = [qml.PauliX(wires=1), qml.TRY(x, wires=0, subspace=subspace), qml.TAdd(wires=[0, 1])]
+        measurements = [qml.counts(qml.GellMann(i, 3)) for i in range(2)]
+
+        qs = qml.tape.QuantumScript(ops, measurements, shots=qml.measurements.Shots(10000))
+        res = simulate(qs, rng=123)
+
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.cos(x), atol=0.05)
+        assert np.allclose(res[1], -np.cos(x), atol=0.05)
+
+        state, is_state_batched = get_final_state(qs)
+        res = measure_final_state(qs, state, is_state_batched, rng=123)
+
+        expected_state = np.zeros((4, 2, 2))
+        expected_state[:, 0, 1] = np.cos(x / 2)
+        expected_state[:, 1, 0] = np.sin(x / 2)
+
+        assert np.allclose(state, expected_state)
+        assert is_state_batched
+        assert isinstance(res, tuple)
+        assert len(res) == 2
+        assert np.allclose(res[0], np.cos(x), atol=0.05)
+        assert np.allclose(res[1], -np.cos(x), atol=0.05)
+
+    def test_broadcasting_with_extra_measurement_wires(self, mocker, subspace):  # TODO should I use
         """Test that broadcasting works when the operations don't act on all wires."""
         # I can't mock anything in `simulate` because the module name is the function name
-        # spy = mocker.spy(qml, "map_wires")
-        # x = np.array([0.8, 1.0, 1.2, 1.4])
-        #
-        # ops = [qml.PauliX(wires=2), qml.RY(x, wires=1), qml.CNOT(wires=[1, 2])]
-        # measurements = [qml.expval(qml.PauliZ(i)) for i in range(3)]
-        #
-        # qs = qml.tape.QuantumScript(ops, measurements)
-        # res = simulate(qs)
-        #
-        # assert isinstance(res, tuple)
-        # assert len(res) == 3
-        # assert np.allclose(res[0], 1.0)
-        # assert np.allclose(res[1], np.cos(x))
-        # assert np.allclose(res[2], -np.cos(x))
-        # assert spy.call_args_list[0].args == (qs, {2: 0, 1: 1, 0: 2})
-        pass
+        spy = mocker.spy(qml, "map_wires")
+        x = np.array([0.8, 1.0, 1.2, 1.4])
+
+        ops = [qml.PauliX(wires=2), qml.TRY(x, wires=1, subspace=subspace), qml.CNOT(wires=[1, 2])]
+        measurements = [qml.expval(qml.PauliZ(i)) for i in range(3)]
+
+        qs = qml.tape.QuantumScript(ops, measurements)
+        res = simulate(qs)
+
+        assert isinstance(res, tuple)
+        assert len(res) == 3
+        assert np.allclose(res[0], 1.0)
+        assert np.allclose(res[1], np.cos(x))
+        assert np.allclose(res[2], -np.cos(x))
+        assert spy.call_args_list[0].args == (qs, {2: 0, 1: 1, 0: 2})
 
 
-class TestPostselection:  # TODO, necessesary?
-    """Tests for applying projectors as operations."""
-
-    # TODO:
-    #  -
-    #  -
-    #  -
-    # TODO total = ? funcs, ? repeats
-
-    pass
-
-
-class TestDebugger:  # TODO fix other to work with this
+@pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
+class TestDebugger:
     """Tests that the debugger works for a simple circuit"""
 
     class Debugger:
@@ -446,49 +446,65 @@ class TestDebugger:  # TODO fix other to work with this
             self.active = True
             self.snapshots = {}
 
+    basis_state = np.array([[1.0, 0, 0], [0, 0, 0], [0, 0, 0]])
+
+    @staticmethod
+    def get_debugger_quantum_script(phi, subspace):
+        """TODO helper"""
+        ops = [
+            qml.Snapshot(),
+            qml.TRX(phi, wires=0, subspace=subspace),
+            qml.Snapshot("final_state"),
+        ]
+        obs = [
+            qml.expval(qml.GellMann(0, 2)),
+            qml.expval(qml.GellMann(0, 3)),
+            qml.expval(qml.GellMann(0, 5)),
+            qml.expval(qml.GellMann(0, 8)),
+        ]
+        return qml.tape.QuantumScript(ops, obs)
+
     def test_debugger_numpy(self, subspace):
         """Test debugger with numpy"""
         phi = np.array(0.397)
-        ops = [qml.Snapshot(), qml.TRX(phi, wires=0), qml.Snapshot("final_state")]
-        qs = get_TRX_quantum_script(phi, subspace)
+        qs = self.get_debugger_quantum_script(phi, subspace)
         debugger = self.Debugger()
         result = simulate(qs, debugger=debugger)
 
         assert isinstance(result, tuple)
-        assert len(result) == 2
+        assert len(result) == 4
 
-        assert np.allclose(result[0], -np.sin(phi))
-        assert np.allclose(result[1], np.cos(phi))
+        expected = expected_TRX_circ_expval_values(phi, subspace)
+        assert np.allclose(result, expected)
 
         assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        assert np.allclose(debugger.snapshots[0], [1, 0])
-        assert np.allclose(
-            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        )
+        assert np.allclose(debugger.snapshots[0], self.basis_state)
+
+        expected_final_state = expected_TRX_circ_state(phi, subspace)
+        assert np.allclose(debugger.snapshots["final_state"], expected_final_state)
 
     @pytest.mark.autograd
-    def test_debugger_autograd(self):
+    def test_debugger_autograd(self, subspace):
         """Tests debugger with autograd"""
         phi = qml.numpy.array(-0.52)
         debugger = self.Debugger()
 
         def f(x):
-            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            qs = self.get_debugger_quantum_script(x, subspace)
             return qml.numpy.array(simulate(qs, debugger=debugger))
 
         result = f(phi)
-        expected = np.array([-np.sin(phi), np.cos(phi)])
+        expected = expected_TRX_circ_expval_values(phi, subspace)
         assert qml.math.allclose(result, expected)
 
         assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        assert qml.math.allclose(
-            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        )
+        assert qml.math.allclose(debugger.snapshots[0], self.basis_state)
+
+        expected_final_state = expected_TRX_circ_state(phi, subspace)
+        assert qml.math.allclose(debugger.snapshots["final_state"], expected_final_state)
 
     @pytest.mark.jax
-    def test_debugger_jax(self):
+    def test_debugger_jax(self, subspace):
         """Tests debugger with JAX"""
         import jax
 
@@ -496,22 +512,21 @@ class TestDebugger:  # TODO fix other to work with this
         debugger = self.Debugger()
 
         def f(x):
-            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            qs = self.get_debugger_quantum_script(x, subspace)
             return simulate(qs, debugger=debugger)
 
         result = f(phi)
-        assert qml.math.allclose(result[0], -np.sin(phi))
-        assert qml.math.allclose(result[1], np.cos(phi))
+        expected = expected_TRX_circ_expval_values(phi, subspace)
+        assert qml.math.allclose(result, expected)
 
         assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        assert qml.math.allclose(
-            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        )
+        assert qml.math.allclose(debugger.snapshots[0], self.basis_state)
+
+        expected_final_state = expected_TRX_circ_state(phi, subspace)
+        assert qml.math.allclose(debugger.snapshots["final_state"], expected_final_state)
 
     @pytest.mark.torch
-    def test_debugger_torch(self):
+    def test_debugger_torch(self, subspace):
         """Tests debugger with torch"""
         import torch
 
@@ -519,105 +534,112 @@ class TestDebugger:  # TODO fix other to work with this
         debugger = self.Debugger()
 
         def f(x):
-            ops = [qml.Snapshot(), qml.RX(x, wires=0), qml.Snapshot("final_state")]
-            qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+            qs = self.get_debugger_quantum_script(x, subspace)
             return simulate(qs, debugger=debugger)
 
-        result = f(phi)
-        assert qml.math.allclose(result[0], -torch.sin(phi))
-        assert qml.math.allclose(result[1], torch.cos(phi))
+        results = f(phi)
+        expected_values = expected_TRX_circ_expval_values(phi.detach().numpy(), subspace)
+        for result, expected in zip(results, expected_values):
+            assert qml.math.allclose(result, expected)
 
         assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        print(debugger.snapshots["final_state"])
-        assert qml.math.allclose(
-            debugger.snapshots["final_state"],
-            torch.tensor([torch.cos(phi / 2), -torch.sin(phi / 2) * 1j]),
+        assert qml.math.allclose(debugger.snapshots[0], self.basis_state)
+
+        expected_final_state = math.asarray(
+            expected_TRX_circ_state(phi.detach().numpy(), subspace), like="torch"
         )
+        assert qml.math.allclose(debugger.snapshots["final_state"], expected_final_state)
 
     # pylint: disable=invalid-unary-operand-type
     @pytest.mark.tf
-    def test_debugger_tf(self):
+    def test_debugger_tf(self, subspace):
         """Tests debugger with tensorflow."""
         import tensorflow as tf
 
         phi = tf.Variable(4.873)
         debugger = self.Debugger()
 
-        ops = [qml.Snapshot(), qml.RX(phi, wires=0), qml.Snapshot("final_state")]
-        qs = qml.tape.QuantumScript(ops, [qml.expval(qml.PauliY(0)), qml.expval(qml.PauliZ(0))])
+        qs = self.get_debugger_quantum_script(phi, subspace)
         result = simulate(qs, debugger=debugger)
 
-        assert qml.math.allclose(result[0], -tf.sin(phi))
-        assert qml.math.allclose(result[1], tf.cos(phi))
+        expected = expected_TRX_circ_expval_values(phi, subspace)
+        assert qml.math.allclose(result, expected)
 
         assert list(debugger.snapshots.keys()) == [0, "final_state"]
-        assert qml.math.allclose(debugger.snapshots[0], [1, 0])
-        assert qml.math.allclose(
-            debugger.snapshots["final_state"], [np.cos(phi / 2), -np.sin(phi / 2) * 1j]
-        )
+        assert qml.math.allclose(debugger.snapshots[0], self.basis_state)
+
+        expected_final_state = expected_TRX_circ_state(phi, subspace)
+        assert qml.math.allclose(debugger.snapshots["final_state"], expected_final_state)
 
 
+@pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
 class TestSampleMeasurements:
     """Tests circuits with sample-based measurements"""
 
     # TODO:
-    #  - 1 broadcasted state
-    #  -
-    #  -
-    #  -
-    # TODO total = 7 funcs
-    def test_invalid_samples(self):
-        """TODO: expval, probs, var"""
-        pass
+    #  - 1 single sample
+    #  - 1 multi measurement
+    #  - 1 sample shots
+    #  - 1 test counts
+    #  - 1 test custom wire labels
+    # TODO total = 6 funcs, fix testing values
 
-    def test_single_sample(self):
+    def test_single_sample(self, subspace):
         """Test a simple circuit with a single sample measurement"""
-        # x = np.array(0.732)
-        # qs = qml.tape.QuantumScript([qml.RY(x, wires=0)], [qml.sample(wires=range(2))], shots=10000)
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, np.ndarray)
-        # assert result.shape == (10000, 2)
-        # assert np.allclose(
-        #     np.sum(result, axis=0).astype(np.float32) / 10000, [np.sin(x / 2) ** 2, 0], atol=0.1
-        # )
+        x = np.array(0.732)
+        qs = qml.tape.QuantumScript(
+            [qml.TRY(x, wires=0, subspace=subspace)], [qml.sample(wires=range(2))], shots=10000
+        )
+        result = simulate(qs)
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (10000, 2)
+        assert np.allclose(
+            np.sum(result, axis=0).astype(np.float32) / 10000,
+            subspace[1] * [np.sin(x / 2) ** 2, 0],
+            atol=0.1,
+        )
         pass
 
-    def test_multi_measurements(self):
+    def test_multi_measurements(self, subspace):
         """Test a simple circuit containing multiple measurements"""
-        # x, y = np.array(0.732), np.array(0.488)
-        # qs = qml.tape.QuantumScript(
-        #     [qml.RX(x, wires=0), qml.CNOT(wires=[0, 1]), qml.RY(y, wires=1)],
-        #     [qml.expval(qml.PauliZ(0)), qml.probs(wires=range(2)), qml.sample(wires=range(2))],
-        #     shots=10000,
-        # )
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == 3
-        # assert isinstance(result[0], np.float64)
-        # assert isinstance(result[1], np.ndarray)
-        # assert isinstance(result[2], np.ndarray)
-        #
-        # assert np.allclose(result[0], np.cos(x), atol=0.1)
-        #
-        # assert result[1].shape == (4,)
-        # assert np.allclose(
-        #     result[1],
-        #     [
-        #         np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #         np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #         np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #         np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #     ],
-        #     atol=0.1,
-        # )
-        #
-        # assert result[2].shape == (10000, 2)
+        num_shots = 10000
+        x, y = np.array(0.732), np.array(0.488)
+        qs = qml.tape.QuantumScript(
+            [
+                qml.TRX(x, wires=0, subspace=subspace),
+                qml.TAdd(wires=[0, 1]),
+                qml.TRY(y, wires=1, subspace=subspace),
+            ],
+            [
+                qml.counts(qml.GellMann(0, 3)),
+                qml.counts(wires=range(2)),
+                qml.sample(wires=range(2)),
+            ],
+            shots=num_shots,
+        )
+        result = simulate(qs)
+        result_gell_mann_3_expval = (result[0][1] - result[0][1]) / num_shots
+        result_probs = np.array(result[1].items()) / num_shots
 
-        # TODO remove invalid things
-        pass
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+        assert np.allclose(result_gell_mann_3_expval, np.cos(x), atol=0.1)
+
+        assert result[1].shape == (4,)
+        assert np.allclose(
+            result_probs,
+            [
+                np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
+                np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
+            ],
+            atol=0.1,
+        )
+
+        assert result[2].shape == (10000, 2)
 
     shots_data = [
         [10000, 10000],
@@ -628,127 +650,135 @@ class TestSampleMeasurements:
     ]
 
     @pytest.mark.parametrize("shots", shots_data)
-    def test_sample_shot_vector(self, shots):
+    def test_sample_shot_vector(self, shots, subspace):
         """Test a simple circuit with a single sample measurement for shot vectors"""
-        # x = np.array(0.732)
-        # shots = qml.measurements.Shots(shots)
-        # qs = qml.tape.QuantumScript([qml.RY(x, wires=0)], [qml.sample(wires=range(2))], shots=shots)
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == len(list(shots))
-        #
-        # assert all(isinstance(res, np.ndarray) for res in result)
-        # assert all(res.shape == (s, 2) for res, s in zip(result, shots))
-        # assert all(
-        #     np.allclose(
-        #         np.sum(res, axis=0).astype(np.float32) / s, [np.sin(x / 2) ** 2, 0], atol=0.1
-        #     )
-        #     for res, s in zip(result, shots)
-        # )
-        pass
+        x = np.array(0.732)
+        shots = qml.measurements.Shots(shots)
+        qs = qml.tape.QuantumScript(
+            [qml.TRY(x, wires=0, subspace=subspace)], [qml.sample(wires=range(2))], shots=shots
+        )
+        result = simulate(qs)
+
+        assert isinstance(result, tuple)
+        assert len(result) == len(list(shots))
+
+        assert all(isinstance(res, np.ndarray) for res in result)
+        assert all(res.shape == (s, 2) for res, s in zip(result, shots))
+        assert all(
+            np.allclose(
+                np.sum(res, axis=0).astype(np.float32) / s, [np.sin(x / 2) ** 2, 0], atol=0.1
+            )
+            for res, s in zip(result, shots)
+        )
 
     @pytest.mark.parametrize("shots", shots_data)
-    def test_counts_shot_vector(self, shots):
+    def test_counts_shot_vector(self, shots, subspace):
         """Test a simple circuit with a single sample measurement for shot vectors"""
-        # x = np.array(0.732)
-        # shots = qml.measurements.Shots(shots)
-        # qs = qml.tape.QuantumScript([qml.RY(x, wires=0)], [qml.sample(wires=range(2))], shots=shots)
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == len(list(shots))
-        #
-        # assert all(isinstance(res, np.ndarray) for res in result)
-        # assert all(res.shape == (s, 2) for res, s in zip(result, shots))
-        # assert all(
-        #     np.allclose(
-        #         np.sum(res, axis=0).astype(np.float32) / s, [np.sin(x / 2) ** 2, 0], atol=0.1
-        #     )
-        #     for res, s in zip(result, shots)
-        # )
-        pass
+        x = np.array(0.732)
+        shots = qml.measurements.Shots(shots)
+        qs = qml.tape.QuantumScript(
+            [qml.TRY(x, wires=0, subspace=subspace)], [qml.sample(wires=range(2))], shots=shots
+        )
+        result = simulate(qs)
+
+        assert isinstance(result, tuple)
+        assert len(result) == len(list(shots))
+
+        assert all(isinstance(res, np.ndarray) for res in result)
+        assert all(res.shape == (s, 2) for res, s in zip(result, shots))
+        assert all(
+            np.allclose(
+                np.sum(res, axis=0).astype(np.float32) / s, [np.sin(x / 2) ** 2, 0], atol=0.1
+            )
+            for res, s in zip(result, shots)
+        )
 
     @pytest.mark.parametrize("shots", shots_data)
-    def test_multi_measurement_shot_vector(self, shots):
+    def test_multi_measurement_shot_vector(self, shots, subspace):
         """Test a simple circuit containing multiple measurements for shot vectors"""
-        # x, y = np.array(0.732), np.array(0.488)
-        # shots = qml.measurements.Shots(shots)
-        # qs = qml.tape.QuantumScript(
-        #     [qml.RX(x, wires=0), qml.CNOT(wires=[0, 1]), qml.RY(y, wires=1)],
-        #     [qml.expval(qml.PauliZ(0)), qml.probs(wires=range(2)), qml.sample(wires=range(2))],
-        #     shots=shots,
-        # )
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == len(list(shots))
-        #
-        # for shot_res, s in zip(result, shots):
-        #     assert isinstance(shot_res, tuple)
-        #     assert len(shot_res) == 3
-        #
-        #     assert isinstance(shot_res[0], np.float64)
-        #     assert isinstance(shot_res[1], np.ndarray)
-        #     assert isinstance(shot_res[2], np.ndarray)
-        #
-        #     assert np.allclose(shot_res[0], np.cos(x), atol=0.1)
-        #
-        #     assert shot_res[1].shape == (4,)
-        #     assert np.allclose(
-        #         shot_res[1],
-        #         [
-        #             np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #             np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #             np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #             np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #         ],
-        #         atol=0.1,
-        #     )
-        #
-        #     assert shot_res[2].shape == (s, 2)
+        x, y = np.array(0.732), np.array(0.488)
+        shots = qml.measurements.Shots(shots)
+        qs = qml.tape.QuantumScript(
+            [
+                qml.TRX(x, wires=0, subspace=subspace),
+                qml.CNOT(wires=[0, 1]),
+                qml.RY(y, wires=1, subspace=subspace),
+            ],
+            [
+                qml.counts(qml.GellMann(0, 3)),
+                qml.counts(wires=range(2)),
+                qml.sample(wires=range(2)),
+            ],
+            shots=shots,
+        )
+        result = simulate(qs)
 
-        # TODO change measurements to valid
-        pass
+        assert isinstance(result, tuple)
+        assert len(result) == len(list(shots))
 
-    def test_custom_wire_labels(self):
+        for shot_res, s in zip(result, shots):
+            assert isinstance(shot_res, tuple)
+            assert len(shot_res) == 3
+
+            assert isinstance(shot_res[0], np.float64)
+            assert isinstance(shot_res[1], np.ndarray)
+            assert isinstance(shot_res[2], np.ndarray)
+
+            assert np.allclose(shot_res[0], np.cos(x), atol=0.1)
+
+            assert shot_res[1].shape == (4,)
+            assert np.allclose(
+                shot_res[1],
+                [
+                    np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
+                    np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                    np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                    np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
+                ],
+                atol=0.1,
+            )
+
+            assert shot_res[2].shape == (s, 2)
+
+    def test_custom_wire_labels(self, subspace):
         """Test that custom wire labels works as expected"""
-        # x, y = np.array(0.732), np.array(0.488)
-        # qs = qml.tape.QuantumScript(
-        #     [qml.RX(x, wires="b"), qml.CNOT(wires=["b", "a"]), qml.RY(y, wires="a")],
-        #     [
-        #         qml.expval(qml.PauliZ("b")),
-        #         qml.probs(wires=["a", "b"]),
-        #         qml.sample(wires=["b", "a"]),
-        #     ],
-        #     shots=10000,
-        # )
-        # result = simulate(qs)
-        #
-        # assert isinstance(result, tuple)
-        # assert len(result) == 3
-        # assert isinstance(result[0], np.float64)
-        # assert isinstance(result[1], np.ndarray)
-        # assert isinstance(result[2], np.ndarray)
-        #
-        # assert np.allclose(result[0], np.cos(x), atol=0.1)
-        #
-        # assert result[1].shape == (4,)
-        # assert np.allclose(
-        #     result[1],
-        #     [
-        #         np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #         np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #         np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
-        #         np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
-        #     ],
-        #     atol=0.1,
-        # )
-        #
-        # assert result[2].shape == (10000, 2)
+        x, y = np.array(0.732), np.array(0.488)
+        qs = qml.tape.QuantumScript(
+            [
+                qml.TRX(x, wires="b", subspace=subspace),
+                qml.TRX(wires=["b", "a"]),
+                qml.TRY(y, wires="a", subspace=subspace),
+            ],
+            [
+                qml.counts(qml.GellMann("b", 3)),
+                qml.counts(wires=["a", "b"]),
+                qml.sample(wires=["b", "a"]),
+            ],
+            shots=10000,
+        )
+        result = simulate(qs)
 
-        # TODO change measurements
-        pass
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+        assert isinstance(result[0], np.float64)
+        assert isinstance(result[1], np.ndarray)
+        assert isinstance(result[2], np.ndarray)
+
+        assert np.allclose(result[0], np.cos(x), atol=0.1)
+
+        assert result[1].shape == (4,)
+        assert np.allclose(
+            result[1],
+            [
+                np.cos(x / 2) ** 2 * np.cos(y / 2) ** 2,
+                np.sin(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                np.cos(x / 2) ** 2 * np.sin(y / 2) ** 2,
+                np.sin(x / 2) ** 2 * np.cos(y / 2) ** 2,
+            ],
+            atol=0.1,
+        )
+
+        assert result[2].shape == (10000, 2)
 
 
 class TestOperatorArithmetic:  # TODO check if necessary
@@ -758,169 +788,113 @@ class TestOperatorArithmetic:  # TODO check if necessary
     #  - testing op arithmatic all-interfaces
     # TODO total = 1 funcs, 5 repeats
 
+    @staticmethod
+    def get_op_arithmatic_quantum_script(phi):
+        """TODO"""
+        ops = [
+            qml.GellMann("a", 1),
+            qml.GellMann("b", 1),
+            qml.ctrl(qml.TRX(phi, "target") ** 2, ("a", "b", -3), control_values=[1, 1, 0]),
+        ]
+
+        qs = qml.tape.QuantumScript(
+            ops,
+            [
+                qml.expval(qml.sum(qml.GellMann("target", 2), qml.GellMann("b", 3))),
+                qml.expval(qml.s_prod(3, qml.GellMann("target", 3))),
+            ],
+        )
+        return qs
+
     def test_numpy_op_arithmetic(self):
         """Test an operator arithmetic circuit with non-integer wires with numpy."""
-        # phi = 1.2
-        # ops = [
-        #     qml.PauliX("a"),
-        #     qml.PauliX("b"),
-        #     qml.ctrl(qml.RX(phi, "target") ** 2, ("a", "b", -3), control_values=[1, 1, 0]),
-        # ]
-        #
-        # qs = qml.tape.QuantumScript(
-        #     ops,
-        #     [
-        #         qml.expval(qml.sum(qml.PauliY("target"), qml.PauliZ("b"))),
-        #         qml.expval(qml.s_prod(3, qml.PauliZ("target"))),
-        #     ],
-        # )
-        #
-        # results = simulate(qs)
-        # assert qml.math.allclose(results[0], -np.sin(2 * phi) - 1)
-        # assert qml.math.allclose(results[1], 3 * np.cos(2 * phi))
-        pass
+        phi = 1.2
+        qs = self.get_op_arithmatic_quantum_script(phi)
+
+        results = simulate(qs)
+        assert qml.math.allclose(results[0], -np.sin(2 * phi) - 1)
+        assert qml.math.allclose(results[1], 3 * np.cos(2 * phi))
 
     @pytest.mark.autograd
     def test_autograd_op_arithmetic(self):
         """Test operator arithmetic circuit with non-integer wires works with autograd."""
 
-        # phi = qml.numpy.array(1.2)
-        #
-        # def f(x):
-        #     ops = [
-        #         qml.PauliX("a"),
-        #         qml.PauliX("b"),
-        #         qml.ctrl(qml.RX(x, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
-        #     ]
-        #
-        #     qs = qml.tape.QuantumScript(
-        #         ops,
-        #         [
-        #             qml.expval(qml.sum(qml.PauliY("target"), qml.PauliZ("b"))),
-        #             qml.expval(qml.s_prod(3, qml.PauliZ("target"))),
-        #         ],
-        #     )
-        #
-        #     return qml.numpy.array(simulate(qs))
-        #
-        # results = f(phi)
-        # assert qml.math.allclose(results[0], -np.sin(phi) - 1)
-        # assert qml.math.allclose(results[1], 3 * np.cos(phi))
-        #
-        # g = qml.jacobian(f)(phi)
-        # assert qml.math.allclose(g[0], -np.cos(phi))
-        # assert qml.math.allclose(g[1], -3 * np.sin(phi))
-        pass
+        phi = qml.numpy.array(1.2)
+
+        def f(x):
+            qs = self.get_op_arithmatic_quantum_script(x)
+            return qml.numpy.array(simulate(qs))
+
+        results = f(phi)
+        assert qml.math.allclose(results[0], -np.sin(phi) - 1)
+        assert qml.math.allclose(results[1], 3 * np.cos(phi))
+
+        g = qml.jacobian(f)(phi)
+        assert qml.math.allclose(g[0], -np.cos(phi))
+        assert qml.math.allclose(g[1], -3 * np.sin(phi))
 
     @pytest.mark.jax
     @pytest.mark.parametrize("use_jit", (True, False))
     def test_jax_op_arithmetic(self, use_jit):
         """Test operator arithmetic circuit with non-integer wires works with jax."""
-        # import jax
-        #
-        # phi = jax.numpy.array(1.2)
-        #
-        # def f(x):
-        #     ops = [
-        #         qml.PauliX("a"),
-        #         qml.PauliX("b"),
-        #         qml.ctrl(qml.RX(x, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
-        #     ]
-        #
-        #     qs = qml.tape.QuantumScript(
-        #         ops,
-        #         [
-        #             qml.expval(qml.sum(qml.PauliY("target"), qml.PauliZ("b"))),
-        #             qml.expval(qml.s_prod(3, qml.PauliZ("target"))),
-        #         ],
-        #     )
-        #
-        #     return simulate(qs)
-        #
-        # if use_jit:
-        #     f = jax.jit(f)
-        #
-        # results = f(phi)
-        # assert qml.math.allclose(results[0], -np.sin(phi) - 1)
-        # assert qml.math.allclose(results[1], 3 * np.cos(phi))
-        #
-        # g = jax.jacobian(f)(phi)
-        # assert qml.math.allclose(g[0], -np.cos(phi))
-        # assert qml.math.allclose(g[1], -3 * np.sin(phi))
+        import jax
+
+        phi = jax.numpy.array(1.2)
+
+        def f(x):
+            qs = self.get_op_arithmatic_quantum_script(x)
+            return simulate(qs)
+
+        if use_jit:
+            f = jax.jit(f)
+
+        results = f(phi)
+        assert qml.math.allclose(results[0], -np.sin(phi) - 1)
+        assert qml.math.allclose(results[1], 3 * np.cos(phi))
+
+        g = jax.jacobian(f)(phi)
+        assert qml.math.allclose(g[0], -np.cos(phi))
+        assert qml.math.allclose(g[1], -3 * np.sin(phi))
         pass
 
     @pytest.mark.torch
     def test_torch_op_arithmetic(self):
         """Test operator arithmetic circuit with non-integer wires works with torch."""
-        # import torch
-        #
-        # phi = torch.tensor(-0.7290, requires_grad=True)
-        #
-        # def f(x):
-        #     ops = [
-        #         qml.PauliX("a"),
-        #         qml.PauliX("b"),
-        #         qml.ctrl(qml.RX(x, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
-        #     ]
-        #
-        #     qs = qml.tape.QuantumScript(
-        #         ops,
-        #         [
-        #             qml.expval(qml.sum(qml.PauliY("target"), qml.PauliZ("b"))),
-        #             qml.expval(qml.s_prod(3, qml.PauliZ("target"))),
-        #         ],
-        #     )
-        #
-        #     return simulate(qs)
-        #
-        # results = f(phi)
-        # assert qml.math.allclose(results[0], -torch.sin(phi) - 1)
-        # assert qml.math.allclose(results[1], 3 * torch.cos(phi))
-        #
-        # g = torch.autograd.functional.jacobian(f, phi)
-        # assert qml.math.allclose(g[0], -torch.cos(phi))
-        # assert qml.math.allclose(g[1], -3 * torch.sin(phi))
+        import torch
+
+        phi = torch.tensor(-0.7290, requires_grad=True)
+
+        def f(x):
+            qs = self.get_op_arithmatic_quantum_script(x)
+            return simulate(qs)
+
+        results = f(phi)
+        assert qml.math.allclose(results[0], -torch.sin(phi) - 1)
+        assert qml.math.allclose(results[1], 3 * torch.cos(phi))
+
+        g = torch.autograd.functional.jacobian(f, phi)
+        assert qml.math.allclose(g[0], -torch.cos(phi))
+        assert qml.math.allclose(g[1], -3 * torch.sin(phi))
         pass
 
     @pytest.mark.tf
     def test_tensorflow_op_arithmetic(self):
         """Test operator arithmetic circuit with non-integer wires works with tensorflow."""
-        # import tensorflow as tf
-        #
-        # phi = tf.Variable(0.4203)
-        #
-        # def f(x):
-        #     ops = [
-        #         qml.PauliX("a"),
-        #         qml.PauliX("b"),
-        #         qml.ctrl(qml.RX(x, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
-        #     ]
-        #
-        #     qs = qml.tape.QuantumScript(
-        #         ops,
-        #         [
-        #             qml.expval(qml.sum(qml.PauliY("target"), qml.PauliZ("b"))),
-        #             qml.expval(qml.s_prod(3, qml.PauliZ("target"))),
-        #         ],
-        #     )
-        #
-        #     return simulate(qs)
-        #
-        # with tf.GradientTape(persistent=True) as tape:
-        #     results = f(phi)
-        #
-        # assert qml.math.allclose(results[0], -np.sin(phi) - 1)
-        # assert qml.math.allclose(results[1], 3 * np.cos(phi))
-        #
-        # g0 = tape.gradient(results[0], phi)
-        # assert qml.math.allclose(g0, -np.cos(phi))
-        # g1 = tape.gradient(results[1], phi)
-        # assert qml.math.allclose(g1, -3 * np.sin(phi))
-        pass
+        import tensorflow as tf
 
+        phi = tf.Variable(0.4203)
 
-qml.ApproxTimeEvolution
+        def f(x):
+            qs = self.get_op_arithmatic_quantum_script(x)
+            return simulate(qs)
 
+        with tf.GradientTape(persistent=True) as tape:
+            results = f(phi)
 
-class TestQInfoMeasurements:  # TODO: maybe add some basics here
-    pass
+        assert qml.math.allclose(results[0], -np.sin(phi) - 1)
+        assert qml.math.allclose(results[1], 3 * np.cos(phi))
+
+        g0 = tape.gradient(results[0], phi)
+        assert qml.math.allclose(g0, -np.cos(phi))
+        g1 = tape.gradient(results[1], phi)
+        assert qml.math.allclose(g1, -3 * np.sin(phi))
