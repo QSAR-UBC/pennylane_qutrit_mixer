@@ -27,7 +27,7 @@ from pennylane.measurements import (
     ProbabilityMP,
     VarianceMP,
 )
-from pennylane.operation import Observable
+from pennylane.operation import Observable, Channel
 from pennylane.typing import TensorLike
 
 from .utils import (
@@ -84,7 +84,10 @@ def apply_observable_einsum(obs: Observable, state, is_state_batched: bool = Fal
 
 
 def calculate_expval(
-    measurementprocess: ExpectationMP, state: TensorLike, is_state_batched: bool = False
+    measurementprocess: ExpectationMP,
+    state: TensorLike,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Measure the expectation value of an observable by finding the trace of obs@rho.
 
@@ -96,22 +99,17 @@ def calculate_expval(
     Returns:
         TensorLike: expectation value of observable wrt the state.
     """
-    obs = measurementprocess.obs
-    rho_mult_obs = apply_observable_einsum(obs, state, is_state_batched)
-
-    # using einsum since trace function axis selection parameter names
-    # are not consistent across interfaces, they don't exist for torch
-
-    num_wires = get_num_wires(state, is_state_batched)
-    rho_mult_obs_reshaped = reshape_state_as_matrix(rho_mult_obs, num_wires)
-    if is_state_batched:
-        return math.real(math.stack([math.sum(math.diagonal(dm)) for dm in rho_mult_obs_reshaped]))
-
-    return math.real(math.sum(math.diagonal(rho_mult_obs_reshaped)))
+    probs = calculate_probability(measurementprocess, state, is_state_batched, measurement_error)
+    eigvals = math.asarray(measurementprocess.eigvals(), dtype="float64")
+    # In case of broadcasting, `probs` has two axes and these are a matrix-vector products
+    return math.dot(probs, eigvals)
 
 
 def calculate_reduced_density_matrix(  # TODO: ask if I should have state diagonalization gates?
-    measurementprocess: StateMeasurement, state: TensorLike, is_state_batched: bool = False
+    measurementprocess: StateMeasurement,
+    state: TensorLike,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Get the state or reduced density matrix.
 
@@ -123,6 +121,7 @@ def calculate_reduced_density_matrix(  # TODO: ask if I should have state diagon
     Returns:
         TensorLike: state or reduced density matrix.
     """
+    # TODO what to do here?
     wires = measurementprocess.wires
     if not wires:
         return reshape_state_as_matrix(state, get_num_wires(state, is_state_batched))
@@ -147,7 +146,10 @@ def calculate_reduced_density_matrix(  # TODO: ask if I should have state diagon
 
 
 def calculate_probability(
-    measurementprocess: StateMeasurement, state: TensorLike, is_state_batched: bool = False
+    measurementprocess: StateMeasurement,
+    state: TensorLike,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Find the probability of measuring states.
 
@@ -161,6 +163,9 @@ def calculate_probability(
     """
     for op in measurementprocess.diagonalizing_gates():
         state = apply_operation(op, state, is_state_batched=is_state_batched)
+
+    if measurement_error:
+        state = apply_operation(measurement_error, state, is_state_batched=is_state_batched)
 
     num_state_wires = get_num_wires(state, is_state_batched)
 
@@ -196,7 +201,10 @@ def calculate_probability(
 
 
 def calculate_variance(
-    measurementprocess: StateMeasurement, state: TensorLike, is_state_batched: bool = False
+    measurementprocess: StateMeasurement,
+    state: TensorLike,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Find variance of observable.
 
@@ -208,7 +216,7 @@ def calculate_variance(
     Returns:
         TensorLike: the variance of the observable wrt the state.
     """
-    probs = calculate_probability(measurementprocess, state, is_state_batched)
+    probs = calculate_probability(measurementprocess, state, is_state_batched, measurement_error)
     eigvals = math.asarray(measurementprocess.eigvals(), dtype="float64")
     # In case of broadcasting, `probs` has two axes and these are a matrix-vector products
     return math.dot(probs, (eigvals**2)) - math.dot(probs, eigvals) ** 2
@@ -218,6 +226,7 @@ def calculate_expval_sum_of_terms(
     measurementprocess: ExpectationMP,
     state: TensorLike,
     is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Measure the expectation value of the state when the measured observable is a ``Hamiltonian`` or ``Sum``
     and it must be backpropagation compatible.
@@ -234,12 +243,23 @@ def calculate_expval_sum_of_terms(
         # Recursively call measure on each term, so that the best measurement method can
         # be used for each term
         return sum(
-            measure(ExpectationMP(term), state, is_state_batched=is_state_batched)
+            measure(
+                ExpectationMP(term),
+                state,
+                is_state_batched=is_state_batched,
+                measurement_error=measurement_error,
+            )
             for term in measurementprocess.obs
         )
     # else hamiltonian
     return sum(
-        c * measure(ExpectationMP(t), state, is_state_batched=is_state_batched)
+        c
+        * measure(
+            ExpectationMP(t),
+            state,
+            is_state_batched=is_state_batched,
+            measurement_error=measurement_error,
+        )
         for c, t in zip(*measurementprocess.obs.terms())
     )
 
@@ -278,7 +298,10 @@ def get_measurement_function(
 
 
 def measure(
-    measurementprocess: MeasurementProcess, state: TensorLike, is_state_batched: bool = False
+    measurementprocess: MeasurementProcess,
+    state: TensorLike,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Apply a measurement process to a state.
 
@@ -290,4 +313,6 @@ def measure(
     Returns:
         Tensorlike: the result of the measurement process being applied to the state.
     """
-    return get_measurement_function(measurementprocess)(measurementprocess, state, is_state_batched)
+    return get_measurement_function(measurementprocess)(
+        measurementprocess, state, is_state_batched, measurement_error
+    )

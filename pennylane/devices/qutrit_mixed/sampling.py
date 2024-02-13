@@ -25,6 +25,7 @@ from pennylane.measurements import (
     SampleMP,
     CountsMP,
 )
+from pennylane.operation import Channel
 from pennylane.typing import TensorLike
 
 from .utils import QUDIT_DIM, get_num_wires
@@ -66,12 +67,17 @@ def _group_measurements(mps: List[Union[SampleMeasurement]]):
 
 
 def _apply_diagonalizing_gates(
-    mps: List[SampleMeasurement], state: np.ndarray, is_state_batched: bool = False
+    mps: List[SampleMeasurement],
+    state: np.ndarray,
+    is_state_batched: bool = False,
+    measurement_error: Channel = None,
 ):
     """Applies diagonalizing gates when necessary"""
     if len(mps) == 1 and mps[0].obs:
         for op in mps[0].diagonalizing_gates():
             state = apply_operation(op, state, is_state_batched=is_state_batched)
+    if measurement_error:
+        state = apply_operation(measurement_error, state, is_state_batched=is_state_batched)
 
     return state
 
@@ -130,6 +136,7 @@ def _measure_with_samples_diagonalizing_gates(
     is_state_batched: bool = False,
     rng=None,
     prng_key=None,
+    measurement_error: Channel = None,
 ) -> TensorLike:
     """Returns the samples of the measurement process performed on the given state,
     by rotating the state into the measurement basis using the diagonalizing gates
@@ -150,7 +157,9 @@ def _measure_with_samples_diagonalizing_gates(
         TensorLike[Any]: Sample measurement results
     """
     # apply diagonalizing gates
-    state = _apply_diagonalizing_gates(mps, state, is_state_batched)
+    state = _apply_diagonalizing_gates(
+        mps, state, is_state_batched, measurement_error=measurement_error
+    )
 
     total_indices = get_num_wires(state, is_state_batched)
     wires = qml.wires.Wires(range(total_indices))
@@ -317,6 +326,7 @@ def measure_with_samples(
     is_state_batched: bool = False,
     rng=None,
     prng_key=None,
+    measurement_error: Channel = None,
 ) -> List[TensorLike]:
     """Returns the samples of the measurement process performed on the given state.
     This function assumes that the user-defined wire labels in the measurement process
@@ -350,6 +360,7 @@ def measure_with_samples(
                 is_state_batched=is_state_batched,
                 rng=rng,
                 prng_key=prng_key,
+                measurement_error=measurement_error,
             )
         )
 
