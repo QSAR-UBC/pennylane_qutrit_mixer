@@ -35,6 +35,7 @@ to verify and test quantum gradient computations.
     default_mixed
     default_qutrit
     default_clifford
+    default_qutrit_mixed
     tests
 
 Next generation devices
@@ -53,6 +54,7 @@ accessible from the ``pennylane.devices`` submodule.
     ExecutionConfig
     Device
     DefaultQubit
+    DefaultQutritMixed
 
 Preprocessing Transforms
 ------------------------
@@ -104,3 +106,4 @@ from .default_gaussian import DefaultGaussian
 from .default_mixed import DefaultMixed
 from .default_clifford import DefaultClifford
 from .null_qubit import NullQubit
+from .default_qutrit_mixed import DefaultQutritMixed
