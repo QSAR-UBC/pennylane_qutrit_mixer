@@ -189,7 +189,24 @@ class DefaultQutritMixed(Device):  # TODO
             self._prng_key = None
             self._rng = np.random.default_rng(seed)
         self._debugger = None
-        self._measurement_error = measurement_error
+
+        if measurement_error is not None:
+            if isinstance(measurement_error, Iterable) and len(measurement_error) == 3:
+                for p in measurement_error:
+                    if not 0.0 <= p <= 1.0:
+                        raise ValueError("Each readout probability must be in the interval [0,1]")
+                if not 0.0 <= sum(measurement_error) <= 1.0:
+                    raise ValueError(
+                        "The sum of readout error probabilities must be in the interval [0,1]"
+                    )
+                self._measurement_error = functools.partial(qml.TritFlip, ps=measurement_error)
+
+            elif isinstance(measurement_error(wire=0), Channel):
+                self._measurement_error = measurement_error
+            else:
+                raise TypeError(
+                    "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
+                )
 
     def _setup_execution_config(self, execution_config: ExecutionConfig) -> ExecutionConfig:
         """This is a private helper for ``preprocess`` that sets up the execution config.
@@ -269,30 +286,6 @@ class DefaultQutritMixed(Device):  # TODO
             raise NotImplementedError(
                 "adjoint differentiation not yet available for qutrit mixed-state device"
             )
-
-        if self._measurement_error is not None:
-            if isinstance(self._measurement_error, Iterable) and len(self._measurement_error) == 3:
-                for p in self._measurement_error:
-                    if not 0.0 <= p <= 1.0:
-                        raise ValueError("Each readout probability must be in the interval [0,1]")
-                if not 0.0 <= sum(self._measurement_error) <= 1.0:
-                    raise ValueError(
-                        "The sum of readout error probabilities must be in the interval [0,1]"
-                    )
-                self._measurement_error = functools.partial(
-                    qml.TritFlip, ps=self._measurement_error
-                )
-            else:
-                try:
-                    if not isinstance(self._measurement_error(wire=0), Channel):
-                        raise TypeError(
-                            "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
-                        )
-                except:
-                    raise ValueError(
-                        "The readout error Channel must be able to accept a single wire and not need any other parameters."
-                    )
-
 
         return transform_program, config
 
