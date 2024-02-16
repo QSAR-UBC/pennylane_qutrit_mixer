@@ -26,6 +26,7 @@ from .non_parametric_ops import *
 from .parametric_ops import *
 from .state_preparation import *
 from ..identity import Identity
+from .channels import *
 
 # TODO: Change `qml.Identity` for qutrit support or add `qml.TIdentity` for qutrits
 __ops__ = {
@@ -41,6 +42,9 @@ __ops__ = {
     "TRY",
     "TRZ",
     "QutritBasisState",
+    "TritFlip",
+    "QutritDepolarizingChannel",
+    "QutritAmplitudeDampingChannel",
 }
 
 __obs__ = {
