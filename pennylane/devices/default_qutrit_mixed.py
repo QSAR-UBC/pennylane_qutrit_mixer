@@ -271,8 +271,6 @@ class DefaultQutritMixed(Device):  # TODO
             )
 
         if self._measurement_error is not None:
-            print(isinstance(self._measurement_error, Iterable))
-            print(len(self._measurement_error) == 3)
             if isinstance(self._measurement_error, Iterable) and len(self._measurement_error) == 3:
                 for p in self._measurement_error:
                     if not 0.0 <= p <= 1.0:
@@ -281,21 +279,20 @@ class DefaultQutritMixed(Device):  # TODO
                     raise ValueError(
                         "The sum of readout error probabilities must be in the interval [0,1]"
                     )
-                print("In right place")
                 self._measurement_error = functools.partial(
                     qml.TritFlip, ps=self._measurement_error
                 )
-            elif isinstance(self._measurement_error, Channel):
+            else:
                 try:
-                    _ = self._measurement_error(0)
+                    if not isinstance(self._measurement_error(wire=0), Channel):
+                        raise TypeError(
+                            "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
+                        )
                 except:
                     raise ValueError(
                         "The readout error Channel must be able to accept a single wire and not need any other parameters."
                     )
-            else:
-                raise TypeError(
-                    "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
-                )
+
 
         return transform_program, config
 
