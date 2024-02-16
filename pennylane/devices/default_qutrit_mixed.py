@@ -16,13 +16,17 @@ The default.qutrit.mixed device is PennyLane's standard qutrit simulator for mix
 """
 
 from dataclasses import replace
-from typing import Union, Tuple, Sequence
+from numbers import Number
+from typing import Union, Callable, Tuple, Sequence
+import inspect
+import logging
 import numpy as np
 
 import pennylane as qml
-from pennylane.ops.op_math.condition import Conditional
+from pennylane.tape import QuantumTape, QuantumScript
+from pennylane.typing import Result, ResultBatch
 from pennylane.transforms.core import TransformProgram
-
+from pennylane.measurements import ExpectationMP
 from . import Device
 from .preprocess import (
     decompose,
@@ -32,8 +36,17 @@ from .preprocess import (
     no_sampling,
 )
 from .execution_config import ExecutionConfig, DefaultExecutionConfig
+from .qutrit_mixed.simulate import simulate
 from .default_qutrit import DefaultQutrit
 
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
+Result_or_ResultBatch = Union[Result, ResultBatch]
+QuantumTapeBatch = Sequence[QuantumTape]
+QuantumTape_or_Batch = Union[QuantumTape, QuantumTapeBatch]
+# always a function from a resultbatch to either a result or a result batch
+PostprocessingFn = Callable[[ResultBatch], Result_or_ResultBatch]
 
 channels = {}
 
@@ -60,6 +73,29 @@ def stopping_condition_shots(op: qml.operation.Operator) -> bool:
 def accepted_sample_measurement(m: qml.measurements.MeasurementProcess) -> bool:
     """Specifies whether a measurement is accepted when sampling."""
     return isinstance(m, qml.measurements.SampleMeasurement)
+
+
+def get_num_shots_and_executions(tape: qml.tape.QuantumTape) -> Tuple[int, int]:
+    num_executions = 0
+    num_shots = 0
+    for mp in tape.measurements:
+        if isinstance(mp, ExpectationMP) and isinstance(mp.obs, qml.Hamiltonian):
+            num_executions += len(mp.obs.ops)
+            if tape.shots:
+                num_shots += tape.shots.total_shots * len(mp.obs.ops)
+        elif isinstance(mp, ExpectationMP) and isinstance(mp.obs, qml.ops.Sum):
+            num_executions += len(mp.obs)
+            if tape.shots:
+                num_shots += tape.shots.total_shots * len(mp.obs)
+        else:
+            num_executions += 1
+            if tape.shots:
+                num_shots += tape.shots.total_shots
+
+    if tape.batch_size:
+        num_executions *= tape.batch_size
+        if tape.shots:
+            num_shots *= tape.batch_size
 
 
 class DefaultQutritMixed(Device):  # TODO
@@ -232,3 +268,59 @@ class DefaultQutritMixed(Device):  # TODO
             )
 
         return transform_program, config
+
+    def execute(
+        self,
+        circuits: QuantumTape_or_Batch,
+        execution_config: ExecutionConfig = DefaultExecutionConfig,
+    ) -> Result_or_ResultBatch:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                """Entry with args=(circuits=%s) called by=%s""",
+                circuits,
+                "::L".join(
+                    str(i) for i in inspect.getouterframes(inspect.currentframe(), 2)[1][1:3]
+                ),
+            )
+
+        is_single_circuit = False
+        if isinstance(circuits, QuantumScript):
+            is_single_circuit = True
+            circuits = [circuits]
+
+        results = tuple(
+            simulate(
+                c,
+                rng=self._rng,
+                prng_key=self._prng_key,
+                debugger=self._debugger,
+                interface=interface,
+                state_cache=self._state_cache,
+            )
+            for c in circuits
+        )
+
+        if self.tracker.active:
+            self.tracker.update(batches=1)
+            self.tracker.record()
+            for i, c in enumerate(circuits):
+                qpu_executions, shots = get_num_shots_and_executions(c)
+                res = np.array(results[i]) if isinstance(results[i], Number) else results[i]
+                if c.shots:
+                    self.tracker.update(
+                        simulations=1,
+                        executions=qpu_executions,
+                        results=res,
+                        shots=shots,
+                        resources=c.specs["resources"],
+                    )
+                else:
+                    self.tracker.update(
+                        simulations=1,
+                        executions=qpu_executions,
+                        results=res,
+                        resources=c.specs["resources"],
+                    )
+                self.tracker.record()
+
+        return results[0] if is_single_circuit else results
