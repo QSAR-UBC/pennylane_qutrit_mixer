@@ -159,7 +159,6 @@ def simulate(
     prng_key=None,
     debugger=None,
     interface=None,
-    state_cache: Optional[dict] = None,
     measurement_error=None,
 ) -> Result:
     """Simulate a single quantum script.
@@ -193,8 +192,6 @@ def simulate(
 
     """
     state, is_state_batched = get_final_state(circuit, debugger=debugger, interface=interface)
-    if state_cache is not None:
-        state_cache[circuit.hash] = state
     return measure_final_state(
         circuit,
         state,

@@ -329,7 +329,6 @@ class DefaultQutritMixed(Device):  # TODO
                 prng_key=self._prng_key,
                 debugger=self._debugger,
                 interface=interface,
-                state_cache=self._state_cache,
                 measurement_error=self._measurement_error_channel,
             )
             for c in circuits
