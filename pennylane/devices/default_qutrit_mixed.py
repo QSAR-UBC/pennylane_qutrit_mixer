@@ -279,13 +279,12 @@ class DefaultQutritMixed(Device):  # TODO
                     raise ValueError(
                         "The sum of readout error probabilities must be in the interval [0,1]"
                     )
-                self._measurement_error_channel = functools.partial(
+                self._measurement_error = functools.partial(
                     qml.TritFlip, ps=self._measurement_error
                 )
             elif isinstance(self._measurement_error, Channel):
                 try:
                     _ = self._measurement_error(0)
-                    self._measurement_error_channel = self._measurement_error
                 except:
                     raise ValueError(
                         "The readout error Channel must be able to accept a single wire and not need any other parameters."
