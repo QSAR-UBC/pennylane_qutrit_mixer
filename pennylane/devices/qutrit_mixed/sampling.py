@@ -99,6 +99,7 @@ def _measure_with_samples_diagonalizing_gates(
     is_state_batched: bool = False,
     rng=None,
     prng_key=None,
+    measurement_error=None,
 ) -> TensorLike:
     """Returns the samples of the measurement process performed on the given state,
     by rotating the state into the measurement basis using the diagonalizing gates
@@ -120,6 +121,10 @@ def _measure_with_samples_diagonalizing_gates(
     """
     # apply diagonalizing gates
     state = _apply_diagonalizing_gates(mp, state, is_state_batched)
+    if measurement_error is not None:
+        wires = mp.wires if mp.wires else range(get_num_wires(state, is_state_batched))
+        for wire in wires:
+            state = apply_operation(measurement_error(wire), state, is_state_batched)
 
     total_indices = get_num_wires(state, is_state_batched)
     wires = qml.wires.Wires(range(total_indices))
@@ -186,6 +191,7 @@ def _measure_sum_with_samples(
     is_state_batched: bool = False,
     rng=None,
     prng_key=None,
+    measurement_error=None,
 ):
     """Sums expectation values of Sum or Hamiltonian Observables"""
     # mp.obs returns is the list of observables for Sum,
@@ -203,6 +209,7 @@ def _measure_sum_with_samples(
                     is_state_batched=is_state_batched,
                     rng=rng,
                     prng_key=prng_key,
+                    measurement_error=measurement_error,
                 )
             )
 
@@ -333,6 +340,7 @@ def measure_with_samples(
     is_state_batched: bool = False,
     rng=None,
     prng_key=None,
+    measurement_error=None,
 ) -> TensorLike:
     """Returns the samples of the measurement process performed on the given state.
     This function assumes that the user-defined wire labels in the measurement process
@@ -366,4 +374,5 @@ def measure_with_samples(
         is_state_batched=is_state_batched,
         rng=rng,
         prng_key=prng_key,
+        measurement_error=measurement_error,
     )

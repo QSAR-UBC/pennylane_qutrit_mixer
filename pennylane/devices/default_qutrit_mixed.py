@@ -14,10 +14,10 @@
 """
 The default.qutrit.mixed device is PennyLane's standard qutrit simulator for mixed-state computations.
 """
-
+import functools
 from dataclasses import replace
 from numbers import Number
-from typing import Union, Callable, Tuple, Sequence
+from typing import Union, Callable, Tuple, Sequence, Iterable
 import inspect
 import logging
 import numpy as np
@@ -27,6 +27,7 @@ from pennylane.tape import QuantumTape, QuantumScript
 from pennylane.typing import Result, ResultBatch
 from pennylane.transforms.core import TransformProgram
 from pennylane.measurements import ExpectationMP
+from pennylane.operation import Channel
 from . import Device
 from .preprocess import (
     decompose,
@@ -177,6 +178,7 @@ class DefaultQutritMixed(Device):  # TODO
         wires=None,
         shots=None,
         seed="global",
+        measurement_error=None,
     ) -> None:
         super().__init__(wires=wires, shots=shots)
         seed = np.random.randint(0, high=10000000) if seed == "global" else seed
@@ -187,6 +189,7 @@ class DefaultQutritMixed(Device):  # TODO
             self._prng_key = None
             self._rng = np.random.default_rng(seed)
         self._debugger = None
+        self._measurement_error = measurement_error
 
     def _setup_execution_config(self, execution_config: ExecutionConfig) -> ExecutionConfig:
         """This is a private helper for ``preprocess`` that sets up the execution config.
@@ -267,6 +270,31 @@ class DefaultQutritMixed(Device):  # TODO
                 "adjoint differentiation not yet available for qutrit mixed-state device"
             )
 
+        if self._measurement_error is not None:
+            if isinstance(self._measurement_error, Iterable) and len(self._measurement_error) == 3:
+                for p in self._measurement_error:
+                    if not 0.0 <= p <= 1.0:
+                        raise ValueError("Each readout probability must be in the interval [0,1]")
+                if not 0.0 <= sum(self._measurement_error) <= 1.0:
+                    raise ValueError(
+                        "The sum of readout error probabilities must be in the interval [0,1]"
+                    )
+                self._measurement_error_channel = functools.partial(
+                    qml.TritFlip, ps=self._measurement_error
+                )
+            elif isinstance(self._measurement_error, Channel):
+                try:
+                    _ = self._measurement_error(0)
+                    self._measurement_error_channel = self._measurement_error
+                except:
+                    raise ValueError(
+                        "The readout error Channel must be able to accept a single wire and not need any other parameters."
+                    )
+
+            raise TypeError(
+                "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
+            )
+
         return transform_program, config
 
     def execute(
@@ -302,6 +330,7 @@ class DefaultQutritMixed(Device):  # TODO
                 debugger=self._debugger,
                 interface=interface,
                 state_cache=self._state_cache,
+                measurement_error=self._measurement_error_channel,
             )
             for c in circuits
         )

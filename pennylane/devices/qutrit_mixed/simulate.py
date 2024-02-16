@@ -94,7 +94,9 @@ def get_final_state(circuit, debugger=None, interface=None):
     return state, is_state_batched
 
 
-def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=None) -> Result:
+def measure_final_state(
+    circuit, state, is_state_batched, rng=None, prng_key=None, measurement_error=None
+) -> Result:
     """
     Perform the measurements required by the circuit on the provided state.
 
@@ -122,9 +124,11 @@ def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=Non
         # analytic case
 
         if len(circuit.measurements) == 1:
-            return measure(circuit.measurements[0], state, is_state_batched)
+            return measure(circuit.measurements[0], state, is_state_batched, measurement_error)
 
-        return tuple(measure(mp, state, is_state_batched) for mp in circuit.measurements)
+        return tuple(
+            measure(mp, state, is_state_batched, measurement_error) for mp in circuit.measurements
+        )
 
     # finite-shot case
     rng = default_rng(rng)  # TODO: Done in sampling anyway should I have it here too?
@@ -136,6 +140,7 @@ def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=Non
             is_state_batched=is_state_batched,
             rng=rng,
             prng_key=prng_key,
+            measurement_error=measurement_error,
         )
         for mp in circuit.measurements
     )
@@ -155,6 +160,7 @@ def simulate(
     debugger=None,
     interface=None,
     state_cache: Optional[dict] = None,
+    measurement_error=None,
 ) -> Result:
     """Simulate a single quantum script.
 
@@ -189,4 +195,11 @@ def simulate(
     state, is_state_batched = get_final_state(circuit, debugger=debugger, interface=interface)
     if state_cache is not None:
         state_cache[circuit.hash] = state
-    return measure_final_state(circuit, state, is_state_batched, rng=rng, prng_key=prng_key)
+    return measure_final_state(
+        circuit,
+        state,
+        is_state_batched,
+        rng=rng,
+        prng_key=prng_key,
+        measurement_error=measurement_error,
+    )
