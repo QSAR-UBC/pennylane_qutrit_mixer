@@ -125,7 +125,7 @@ def _measure_with_samples_diagonalizing_gates(
     if measurement_error is not None:
         wires = mp.wires if mp.wires else range(get_num_wires(state, is_state_batched))
         for wire in wires:
-            state = apply_operation(measurement_error(wire), state, is_state_batched)
+            state = apply_operation(measurement_error(wires=wire), state, is_state_batched)
 
     total_indices = get_num_wires(state, is_state_batched)
     wires = qml.wires.Wires(range(total_indices))

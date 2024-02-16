@@ -145,7 +145,7 @@ def calculate_reduced_density_matrix(  # TODO: ask if I should have state diagon
     final_num_wires = get_num_wires(state, is_state_batched)
     if isinstance(measurementprocess, DensityMatrixMP) and measurement_error is not None:
         for wire in range(final_num_wires):
-            state = apply_operation(measurement_error(wire), state, is_state_batched)
+            state = apply_operation(measurement_error(wires=wire), state, is_state_batched)
 
     return reshape_state_as_matrix(state, final_num_wires)
 
@@ -175,7 +175,7 @@ def calculate_probability(
             else range(get_num_wires(state, is_state_batched))
         )
         for wire in wires:
-            state = apply_operation(measurement_error(wire), state, is_state_batched)
+            state = apply_operation(measurement_error(wires=wire), state, is_state_batched)
 
     num_state_wires = get_num_wires(state, is_state_batched)
 
