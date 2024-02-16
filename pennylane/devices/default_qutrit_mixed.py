@@ -289,10 +289,10 @@ class DefaultQutritMixed(Device):  # TODO
                     raise ValueError(
                         "The readout error Channel must be able to accept a single wire and not need any other parameters."
                     )
-
-            raise TypeError(
-                "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
-            )
+            else:
+                raise TypeError(
+                    "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
+                )
 
         return transform_program, config
 
