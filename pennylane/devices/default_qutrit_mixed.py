@@ -207,6 +207,8 @@ class DefaultQutritMixed(Device):  # TODO
                 raise TypeError(
                     "The readout error probability should be an iterable of floats in the interval [0,1] or a Channel."
                 )
+        else:
+            self._measurement_error = None
 
     def _setup_execution_config(self, execution_config: ExecutionConfig) -> ExecutionConfig:
         """This is a private helper for ``preprocess`` that sets up the execution config.
