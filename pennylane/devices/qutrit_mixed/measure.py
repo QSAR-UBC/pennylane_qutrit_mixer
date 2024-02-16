@@ -14,11 +14,12 @@
 """
 Code relevant for performing measurements on a qutrit mixed state.
 """
-
+from functools import reduce
 from typing import Callable
 from string import ascii_letters as alphabet
 from pennylane import math
 from pennylane.ops import Sum, Hamiltonian
+from pennylane.ops import Prod
 from pennylane.measurements import (
     StateMeasurement,
     MeasurementProcess,
@@ -28,7 +29,7 @@ from pennylane.measurements import (
     ProbabilityMP,
     VarianceMP,
 )
-from pennylane.operation import Observable
+from pennylane.operation import Observable, Tensor
 from pennylane.typing import TensorLike
 
 from .utils import (
@@ -322,6 +323,8 @@ def measure(
     Returns:
         Tensorlike: the result of the measurement process being applied to the state.
     """
+    if isinstance(measurementprocess.obs, Prod):
+        measurementprocess.obs = reduce(Tensor, list(measurementprocess.obs))
     return get_measurement_function(measurementprocess)(
         measurementprocess, state, is_state_batched, measurement_error
     )

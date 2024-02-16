@@ -14,6 +14,7 @@
 """
 Code relevant for sampling a qutrit mixed state.
 """
+from functools import reduce
 import numpy as np
 import pennylane as qml
 from pennylane import math
@@ -360,6 +361,8 @@ def measure_with_samples(
     Returns:
         TensorLike[Any]: Sample measurement results
     """
+    if isinstance(mp.obs, qml.ops.Prod):
+        mp.obs = reduce(qml.Tensor, list(mp.obs))
 
     if isinstance(mp, ExpectationMP) and isinstance(mp.obs, (Hamiltonian, Sum)):
         measure_fn = _measure_sum_with_samples
