@@ -288,6 +288,12 @@ class DefaultQutritMixed(Device):  # TODO
             is_single_circuit = True
             circuits = [circuits]
 
+        interface = (
+            execution_config.interface
+            if execution_config.gradient_method in {"best", "backprop", None}
+            else None
+        )
+
         results = tuple(
             simulate(
                 c,
