@@ -45,6 +45,7 @@ logger.addHandler(logging.NullHandler())
 Result_or_ResultBatch = Union[Result, ResultBatch]
 QuantumTapeBatch = Sequence[QuantumTape]
 QuantumTape_or_Batch = Union[QuantumTape, QuantumTapeBatch]
+
 # always a function from a resultbatch to either a result or a result batch
 PostprocessingFn = Callable[[ResultBatch], Result_or_ResultBatch]
 
