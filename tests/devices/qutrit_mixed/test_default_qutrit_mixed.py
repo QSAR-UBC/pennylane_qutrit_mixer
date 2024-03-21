@@ -98,7 +98,7 @@ def test_debugger_attribute():
 
 
 # pylint: disable=protected-access
-def test_applied_modifiers():  # TODO: necessary? / broken
+def test_applied_modifiers():
     """Test that DefaultQutritMixed has the `single_tape_support` and `simulator_tracking`
     modifiers applied.
     """

@@ -27,7 +27,10 @@ from pennylane.tape import QuantumTape, QuantumScript
 from pennylane.typing import Result, ResultBatch
 from pennylane.transforms.core import TransformProgram
 from pennylane.measurements import ExpectationMP
+
 from . import Device
+from .modifiers import single_tape_support, simulator_tracking
+
 from .preprocess import (
     decompose,
     validate_observables,
@@ -99,6 +102,8 @@ def get_num_shots_and_executions(tape: qml.tape.QuantumTape) -> Tuple[int, int]:
             num_shots *= tape.batch_size
 
 
+@simulator_tracking
+@single_tape_support
 class DefaultQutritMixed(Device):  # TODO
     """A PennyLane device written in Python and capable of backpropagation derivatives.
 
