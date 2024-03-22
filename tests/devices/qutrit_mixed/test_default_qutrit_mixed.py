@@ -581,7 +581,7 @@ class TestSampleMeasurements:
 
         assert result[2].shape == (num_shots, 2)
 
-    def test_batch_tapes(self, subspace):  # TODO
+    def test_batch_tapes(self, subspace):
         """Test that a batch of tapes with sampling works as expected"""
         x = np.array(0.732)
         qs1 = qml.tape.QuantumScript(
@@ -626,33 +626,19 @@ class TestExecutingBatches:
     """Tests involving executing multiple circuits at the same time."""
 
     @staticmethod
-    def f(dev, phi):
+    def f_unhashable(dev, phi):
         """A function that executes a batch of scripts on DefaultQutritMixed without preprocessing."""
+
         ops = [
-            qml.TSWAP("a"),
-            qml.TSWAP("b"),
-            qml.ctrl(qml.TRX(phi, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
-        ]
-
-        qs1 = qml.tape.QuantumScript(
-            ops,
-            [
-                qml.expval(qml.sum(qml.GellMann("target", 2), qml.GellMann("b", 3))),
-                qml.expval(qml.s_prod(3, qml.GellMann("target", 3))),
-            ],
-        )
-
-        ops = [qml.THadamard(0), qml.IsingXX(phi, wires=(0, 1))]
-        qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
-        return dev.execute((qs1, qs2))
-
-    @staticmethod
-    def f_hashable(phi):
-        """A function that executes a batch of scripts on DefaultQutritMixed without preprocessing."""
-        ops = [
-            qml.TSWAP("a"),
-            qml.TSWAP("b"),
-            qml.ctrl(qml.RX(phi, "target"), ("a", "b", -3), control_values=[1, 1, 0]),
+            qml.TShift("a"),
+            qml.TShift("b"),
+            qml.TShift("b"),
+            qml.ControlledQutritUnitary(
+                qml.TRX.compute_matrix(phi),
+                control_wires=("a", "b", -3),
+                wires=("target"),
+                control_values="120",
+            ),
         ]
 
         qs1 = qml.tape.QuantumScript(
@@ -663,18 +649,65 @@ class TestExecutingBatches:
             ],
         )
 
-        ops = [qml.THadamard(0), qml.IsingXX(phi, wires=(0, 1))]  # TODO
+        ops = [
+            qml.THadamard(0),
+            qml.TAdd((0, 1)),
+            qml.TRX(phi, 1),
+            qml.TRX(phi, 1, subspace=(0, 2)),
+            qml.TAdd((0, 1)),
+            qml.TAdd((0, 1)),
+        ]
+        qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
+        return dev.execute((qs1, qs2))
+
+    @staticmethod
+    def f(phi):
+        """A function that executes a batch of scripts on DefaultQutritMixed without preprocessing."""
+        ops = [
+            qml.TShift("a"),
+            qml.TShift("b"),
+            qml.TShift("b"),
+            qml.ControlledQutritUnitary(
+                qml.TRX.compute_matrix(phi) @ qml.TRX.compute_matrix(phi, subspace=(1, 2)),
+                control_wires=("a", "b", -3),
+                wires="target",
+                control_values="120",
+            ),
+        ]
+
+        qs1 = qml.tape.QuantumScript(
+            ops,
+            [
+                qml.expval(qml.sum(qml.GellMann("target", 2), qml.GellMann("b", 8))),
+                qml.expval(qml.s_prod(3, qml.GellMann("target", 3))),
+            ],
+        )
+
+        ops = [
+            qml.THadamard(0),
+            qml.TAdd((0, 1)),
+            qml.TRX(phi, 1),
+            qml.TRX(phi, 1, subspace=(1, 2)),
+            qml.TAdd((0, 1)),
+            qml.TAdd((0, 1)),
+        ]
         qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
         return DefaultQutritMixed().execute((qs1, qs2))
 
     @staticmethod
-    def expected(phi):  # TODO
+    def expected(phi):
         """expected output of f."""
-        out1 = (-qml.math.sin(phi) - 1, 3 * qml.math.cos(phi))
+        out1 = (-np.sin(phi) - 2 / np.sqrt(3), np.sqrt(3) * np.cos(phi))
 
-        x1 = qml.math.cos(phi / 2) ** 2 / 2
-        x2 = qml.math.sin(phi / 2) ** 2 / 2
-        out2 = x1 * np.array([1, 0, 1, 0]) + x2 * np.array([0, 1, 0, 1])
+        x1 = np.cos(phi / 2) ** 4 / 3
+        x2 = (np.sin(phi) / 2) ** 2 / 3
+        x3 = np.sin(phi / 2) ** 2 / 3
+        out2 = (
+            x1 * np.array([1, 0, 0, 1, 0, 0, 1, 0, 0])
+            + x2 * np.array([0, 1, 0, 0, 1, 0, 0, 1, 0])
+            + x3 * np.array([0, 0, 1, 0, 0, 1, 0, 0, 1])
+        )
+
         return (out1, out2)
 
     @staticmethod
@@ -682,36 +715,52 @@ class TestExecutingBatches:
         """Assert two ragged lists are equal."""
         assert len(x1) == len(x2)
         assert len(x1[0]) == len(x2[0])
+        print(x1[1])
         assert qml.math.allclose(x1[0][0], x2[0][0])
         assert qml.math.allclose(x1[0][1], x2[0][1])
         assert qml.math.allclose(x1[1], x2[1])
 
     def test_numpy(self):
         """Test that results are expected when the parameter does not have a parameter."""
-        dev = DefaultQutritMixed()
-
         phi = 0.892
-        results = self.f(dev, phi)
+        results = self.f(phi)
         expected = self.expected(phi)
 
         self.nested_compare(results, expected)
+
+    # def test_todo_remove(self):
+    #     """Test that results are expected when the parameter does not have a parameter."""
+    #     dev = qml.devices.default_qutrit.DefaultQutrit(("a","b",-3,"target"))
+    #     ops = [
+    #         qml.TShift("a"),
+    #         qml.TShift("b"),
+    #         qml.TShift("b"),
+    #         qml.ControlledQutritUnitary(qml.TRX.compute_matrix(0.4), control_wires=("a", "b", -3),
+    #                                     wires="target", control_values="121")
+    #     ]
+    #
+    #     qs1 = qml.tape.QuantumScript(
+    #         ops,
+    #         [
+    #             qml.expval(qml.GellMann("target", 8)),
+    #         ],
+    #     )
+    #     return dev.execute(qs1)
 
     @pytest.mark.autograd
     def test_autograd(self):
         """Test batches can be executed and have backprop derivatives in autograd."""
-        dev = DefaultQutritMixed()
-
         phi = qml.numpy.array(-0.629)
-        results = self.f(dev, phi)
+        results = self.f(phi)
         expected = self.expected(phi)
 
         self.nested_compare(results, expected)
 
-        g0 = qml.jacobian(lambda x: qml.numpy.array(self.f(dev, x)[0]))(phi)
+        g0 = qml.jacobian(lambda x: qml.numpy.array(self.f(x)[0]))(phi)
         g0_expected = qml.jacobian(lambda x: qml.numpy.array(self.expected(x)[0]))(phi)
         assert qml.math.allclose(g0, g0_expected)
 
-        g1 = qml.jacobian(lambda x: qml.numpy.array(self.f(dev, x)[1]))(phi)
+        g1 = qml.jacobian(lambda x: qml.numpy.array(self.f(x)[1]))(phi)
         g1_expected = qml.jacobian(lambda x: qml.numpy.array(self.expected(x)[1]))(phi)
         assert qml.math.allclose(g1, g1_expected)
 
@@ -723,7 +772,7 @@ class TestExecutingBatches:
 
         phi = jax.numpy.array(0.123)
 
-        f = jax.jit(self.f_hashable) if use_jit else self.f_hashable
+        f = jax.jit(self.f) if use_jit else self.f
         results = f(phi)
         expected = self.expected(phi)
 
@@ -739,20 +788,18 @@ class TestExecutingBatches:
         """Test batches can be executed and have backprop derivatives in torch."""
         import torch
 
-        dev = DefaultQutritMixed()
-
         x = torch.tensor(9.6243)
 
-        results = self.f(dev, x)
+        results = self.f(x)
         expected = self.expected(x)
 
         self.nested_compare(results, expected)
 
-        g1 = torch.autograd.functional.jacobian(lambda y: self.f(dev, y)[0], x)
+        g1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[0], x)
         assert qml.math.allclose(g1[0], -qml.math.cos(x))
         assert qml.math.allclose(g1[1], -3 * qml.math.sin(x))
 
-        g1 = torch.autograd.functional.jacobian(lambda y: self.f(dev, y)[1], x)
+        g1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[1], x)
         temp = -0.5 * qml.math.cos(x / 2) * qml.math.sin(x / 2)
         g3 = torch.tensor([temp, -temp, temp, -temp])
         assert qml.math.allclose(g1, g3)
@@ -762,11 +809,9 @@ class TestExecutingBatches:
         """Test batches can be executed and have backprop derivatives in tf."""
         import tensorflow as tf
 
-        dev = DefaultQutritMixed()
-
         x = tf.Variable(5.2281)
         with tf.GradientTape(persistent=True) as tape:
-            results = self.f(dev, x)
+            results = self.f(x)
 
         expected = self.expected(x)
         self.nested_compare(results, expected)
@@ -782,11 +827,185 @@ class TestExecutingBatches:
         assert qml.math.allclose(g1, g3)
 
 
-@pytest.mark.slow
+@pytest.mark.parametrize("convert_to_hamiltonian", (True, False))
 class TestSumOfTermsDifferentiability:
     """Basically a copy of the `qutrit_mixed.measure` test but using the device instead."""
 
-    pass
+    x = 0.52
+
+    @staticmethod
+    def f(scale, coeffs, n_wires=5, offset=0.1, convert_to_hamiltonian=False):
+        """Function to differentiate that implements a circuit with a SumOfTerms operator"""
+        ops = [qml.TRX(offset + scale * i, wires=i, subspace=(0, 2)) for i in range(n_wires)]
+
+        if convert_to_hamiltonian:
+            H = qml.Hamiltonian(
+                coeffs,
+                [
+                    qml.operation.Tensor(*(qml.GellMann(i, 3) for i in range(n_wires))),
+                    qml.operation.Tensor(*(qml.GellMann(i, 5) for i in range(n_wires))),
+                ],
+            )
+        else:
+            t1 = qml.s_prod(coeffs[0], qml.prod(*(qml.GellMann(i, 3) for i in range(n_wires))))
+            t2 = qml.s_prod(coeffs[1], qml.prod(*(qml.GellMann(i, 5) for i in range(n_wires))))
+            H = t1 + t2
+
+        qs = qml.tape.QuantumScript(ops, [qml.expval(H)])
+        return DefaultQutritMixed().execute(qs)
+
+    @staticmethod
+    def expected(scale, coeffs, n_wires=5, offset=0.1, like="numpy"):
+        phase = offset + scale * qml.math.asarray(range(n_wires), like=like)
+        cosines = qml.math.cos(phase / 2) ** 2
+        sines = -qml.math.sin(phase)
+        return coeffs[0] * qml.math.prod(cosines) + coeffs[1] * qml.math.prod(sines)
+
+    @pytest.mark.autograd
+    @pytest.mark.parametrize(
+        "coeffs",
+        [
+            (qml.numpy.array(2.5), qml.numpy.array(6.2)),
+            # (qml.numpy.array(2.5, requires_grad=False), TODO: add once diff testing added
+            #  qml.numpy.array(6.2, requires_grad=False)),
+        ],
+    )
+    def test_autograd_backprop(self, convert_to_hamiltonian, coeffs):
+        """Test that backpropagation derivatives work in autograd with hamiltonians and large sums."""
+        x = qml.numpy.array(self.x)
+        out = self.f(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_out = self.expected(x, coeffs)
+        assert qml.math.allclose(out, expected_out)
+
+        gradient = qml.grad(self.f)(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_gradient = qml.grad(self.expected)(x, coeffs)
+        assert qml.math.allclose(expected_gradient, gradient)
+
+    @pytest.mark.autograd
+    def test_autograd_backprop_coeffs(self, convert_to_hamiltonian):
+        """Test that backpropagation derivatives work in autograd with hamiltonians and large sums."""
+        coeffs = qml.numpy.array((2.5, 6.2), requires_grad=True)
+        gradient = qml.grad(self.f, argnum=1)(
+            self.x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian
+        )
+        expected_gradient = qml.grad(self.expected)(self.x, coeffs)
+        assert len(gradient) == 2
+        assert qml.math.allclose(expected_gradient, gradient)
+
+    @pytest.mark.jax
+    @pytest.mark.parametrize("use_jit", (True, False))
+    def test_jax_backprop(self, convert_to_hamiltonian, use_jit):
+        """Test that backpropagation derivatives work with jax with hamiltonians and large sums."""
+        import jax
+
+        jax.config.update("jax_enable_x64", True)
+
+        x = jax.numpy.array(self.x, dtype=jax.numpy.float64)
+        coeffs = (5.2, 6.7)
+        f = jax.jit(self.f, static_argnums=(1, 2, 3, 4)) if use_jit else self.f
+
+        out = f(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_out = self.expected(x, coeffs)
+        assert qml.math.allclose(out, expected_out)
+
+        gradient = jax.grad(f)(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_gradient = jax.grad(self.expected)(x, coeffs)
+        assert qml.math.allclose(expected_gradient, gradient)
+
+    @pytest.mark.jax
+    @pytest.mark.parametrize("use_jit", (True, False))
+    def test_jax_backprop_coeffs(self, convert_to_hamiltonian, use_jit):
+        """Test that backpropagation derivatives work with jax with hamiltonians and large sums."""
+        if use_jit and not convert_to_hamiltonian:
+            pytest.skip("Jit will fail in making sum due to checking if Hermitian")
+        import jax
+
+        jax.config.update("jax_enable_x64", True)
+        coeffs = jax.numpy.array((5.2, 6.7), dtype=jax.numpy.float64)
+
+        f = jax.jit(self.f, static_argnums=(0, 2, 3, 4)) if use_jit else self.f
+
+        gradient = jax.grad(f, argnums=1)(
+            self.x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian
+        )
+        expected_gradient = jax.grad(self.expected, argnums=1)(self.x, coeffs)
+        assert len(gradient) == 2
+        assert qml.math.allclose(expected_gradient, gradient)
+
+    @pytest.mark.torch
+    def test_torch_backprop(self, convert_to_hamiltonian):
+        """Test that backpropagation derivatives work with torch with hamiltonians and large sums."""
+        import torch
+
+        coeffs = [
+            torch.tensor(9.2, requires_grad=False, dtype=torch.float64),
+            torch.tensor(6.2, requires_grad=False, dtype=torch.float64),
+        ]
+
+        x = torch.tensor(-0.289, requires_grad=True, dtype=torch.float64)
+        x2 = torch.tensor(-0.289, requires_grad=True, dtype=torch.float64)
+        out = self.f(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_out = self.expected(x2, coeffs, like="torch")
+        assert qml.math.allclose(out, expected_out)
+
+        out.backward()
+        expected_out.backward()
+        assert qml.math.allclose(x.grad, x2.grad)
+
+    @pytest.mark.torch
+    def test_torch_backprop_coeffs(self, convert_to_hamiltonian):
+        """Test that backpropagation derivatives work with torch with hamiltonians and large sums."""
+        import torch
+
+        coeffs = torch.tensor((9.2, 6.2), requires_grad=True, dtype=torch.float64)
+        coeffs_expected = torch.tensor((9.2, 6.2), requires_grad=True, dtype=torch.float64)
+
+        x = torch.tensor(-0.289, requires_grad=False, dtype=torch.float64)
+        out = self.f(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+        expected_out = self.expected(x, coeffs_expected, like="torch")
+        assert qml.math.allclose(out, expected_out)
+
+        out.backward()
+        expected_out.backward()
+        assert len(coeffs.grad) == 2
+        assert qml.math.allclose(coeffs.grad, coeffs_expected.grad)
+
+    @pytest.mark.tf
+    def test_tf_backprop(self, convert_to_hamiltonian):
+        """Test that backpropagation derivatives work with tensorflow with hamiltonians and large sums."""
+        import tensorflow as tf
+
+        x = tf.Variable(self.x)
+        coeffs = [8.3, 5.7]
+
+        with tf.GradientTape() as tape1:
+            out = self.f(x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+
+        with tf.GradientTape() as tape2:
+            expected_out = self.expected(x, coeffs)
+
+        assert qml.math.allclose(out, expected_out)
+        gradient = tape1.gradient(out, x)
+        expected_gradient = tape2.gradient(expected_out, x)
+        assert qml.math.allclose(expected_gradient, gradient)
+
+    @pytest.mark.tf
+    def test_tf_backprop_coeffs(self, convert_to_hamiltonian):
+        """Test that backpropagation derivatives work with tensorflow with hamiltonians and large sums."""
+        import tensorflow as tf
+
+        coeffs = tf.Variable([8.3, 5.7])
+
+        with tf.GradientTape() as tape1:
+            out = self.f(self.x, coeffs, convert_to_hamiltonian=convert_to_hamiltonian)
+
+        with tf.GradientTape() as tape2:
+            expected_out = self.expected(self.x, coeffs)
+
+        gradient = tape1.gradient(out, coeffs)
+        expected_gradient = tape2.gradient(expected_out, coeffs)
+        assert len(gradient) == 2
+        assert qml.math.allclose(expected_gradient, gradient)
 
 
 class TestRandomSeed:
