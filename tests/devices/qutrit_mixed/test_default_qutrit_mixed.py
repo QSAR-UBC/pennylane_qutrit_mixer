@@ -783,8 +783,8 @@ class TestExecutingBatches:
 
 
 @pytest.mark.slow
-class TestSumOfTermsDifferentiability:  # TODO copy from simulate
-    """Basically a copy of the `qubit.simulate` test but using the device instead."""
+class TestSumOfTermsDifferentiability:
+    """Basically a copy of the `qutrit_mixed.measure` test but using the device instead."""
 
     pass
 
