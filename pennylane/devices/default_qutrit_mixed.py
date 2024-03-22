@@ -17,7 +17,7 @@ The default.qutrit.mixed device is PennyLane's standard qutrit simulator for mix
 
 from dataclasses import replace
 from numbers import Number
-from typing import Union, Callable, Tuple, Sequence
+from typing import Union, Callable, Tuple, Sequence, Optional
 import inspect
 import logging
 import numpy as np
@@ -104,7 +104,7 @@ def get_num_shots_and_executions(tape: qml.tape.QuantumTape) -> Tuple[int, int]:
 
 @simulator_tracking
 @single_tape_support
-class DefaultQutritMixed(Device):  # TODO
+class DefaultQutritMixed(Device):
     """A PennyLane device written in Python and capable of backpropagation derivatives.
 
     Args:
@@ -193,6 +193,27 @@ class DefaultQutritMixed(Device):  # TODO
             self._prng_key = None
             self._rng = np.random.default_rng(seed)
         self._debugger = None
+
+    def supports_derivatives(
+        self,
+        execution_config: Optional[ExecutionConfig] = None,
+        circuit: Optional[QuantumTape] = None,
+    ) -> bool:
+        """Check whether or not derivatives are available for a given configuration and circuit.
+
+        ``DefaultQutritMixed`` supports backpropagation derivatives with analytic results.
+
+        Args:
+            execution_config (ExecutionConfig): The configuration of the desired derivative calculation
+            circuit (QuantumTape): An optional circuit to check derivatives support for.
+
+        Returns:
+            Bool: Whether or not a derivative can be calculated provided the given information
+
+        """
+        if execution_config is None or execution_config.gradient_method in {"backprop", "best"}:
+            return circuit is None or not circuit.shots
+        return False
 
     def _setup_execution_config(self, execution_config: ExecutionConfig) -> ExecutionConfig:
         """This is a private helper for ``preprocess`` that sets up the execution config.

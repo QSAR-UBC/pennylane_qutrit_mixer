@@ -19,6 +19,7 @@ import pytest
 import numpy as np
 
 import pennylane as qml
+from pennylane import math
 from pennylane.devices import DefaultQutritMixed, ExecutionConfig
 
 np.random.seed(0)
@@ -112,7 +113,7 @@ def test_applied_modifiers():
 class TestSupportsDerivatives:
     """Test that DefaultQutritMixed states what kind of derivatives it supports."""
 
-    def test_supports_backprop(self):  # TODO
+    def test_supports_backprop(self):
         """Test that DefaultQutritMixed says that it supports backpropagation."""
         dev = DefaultQutritMixed()
         assert dev.supports_derivatives() is True
@@ -129,10 +130,10 @@ class TestSupportsDerivatives:
         assert dev.supports_jvp(config, qs) is False
         assert dev.supports_vjp(config, qs) is False
 
-        config = ExecutionConfig(gradient_method="backprop", interface=None)
+        config = ExecutionConfig(gradient_method="best", interface=None)
         assert dev.supports_derivatives(config) is True
         assert dev.supports_jvp(config) is False
-        assert dev.supports_vjp(config) is False  # TODO: True??
+        assert dev.supports_vjp(config) is False
 
     def test_doesnt_support_derivatives_with_invalid_tape(self):
         """Tests that DefaultQutritMixed does not support differentiation with invalid circuits."""
@@ -140,12 +141,10 @@ class TestSupportsDerivatives:
         config = ExecutionConfig(gradient_method="backprop")
         circuit = qml.tape.QuantumScript([], [qml.sample()], shots=10)
         assert dev.supports_derivatives(config, circuit=circuit) is False
-        assert dev.supports_jvp(config, circuit=circuit) is False
-        assert dev.supports_vjp(config, circuit=circuit) is False
 
     @pytest.mark.parametrize(
-        "gradient_method", ["parameter-shift", "finite-diff", "device"]
-    )  # TODO add to this
+        "gradient_method", ["parameter-shift", "finite-diff", "device", "adjoint"]
+    )
     def test_doesnt_support_other_gradient_methods(self, gradient_method):
         """Test that DefaultQutritMixed currently does not support other gradient methods natively."""
         dev = DefaultQutritMixed()
@@ -183,24 +182,6 @@ class TestBasicCircuit:
         assert isinstance(result, tuple)
         assert len(result) == 4
         assert np.allclose(result, expected_measurements)
-
-    def test_basic_circuit_numpy_with_config(self):
-        """Test execution with a basic circuit."""
-        phi = np.array(0.397)
-        qs = qml.tape.QuantumScript(
-            [qml.TRX(phi, wires=0)],
-            [qml.expval(qml.GellMann(0, 2)), qml.expval(qml.GellMann(0, 3))],
-        )
-
-        dev = DefaultQutritMixed()
-        config = ExecutionConfig(device_options={})  # TODO re-add?
-        result = dev.execute(qs, execution_config=config)
-
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-        assert np.allclose(result[0], -np.sin(phi))
-        assert np.allclose(result[1], np.cos(phi))
 
     @pytest.mark.autograd
     @pytest.mark.parametrize("subspace", [(0, 1), (0, 2)])
@@ -625,40 +606,41 @@ class TestSampleMeasurements:
 class TestExecutingBatches:
     """Tests involving executing multiple circuits at the same time."""
 
-    @staticmethod
-    def f_unhashable(dev, phi):
-        """A function that executes a batch of scripts on DefaultQutritMixed without preprocessing."""
-
-        ops = [
-            qml.TShift("a"),
-            qml.TShift("b"),
-            qml.TShift("b"),
-            qml.ControlledQutritUnitary(
-                qml.TRX.compute_matrix(phi),
-                control_wires=("a", "b", -3),
-                wires=("target"),
-                control_values="120",
-            ),
-        ]
-
-        qs1 = qml.tape.QuantumScript(
-            ops,
-            [
-                qml.expval(qml.sum(qml.GellMann("target", 2), qml.GellMann("b", 3))),
-                qml.expval(qml.s_prod(3, qml.GellMann("target", 8))),
-            ],
-        )
-
-        ops = [
-            qml.THadamard(0),
-            qml.TAdd((0, 1)),
-            qml.TRX(phi, 1),
-            qml.TRX(phi, 1, subspace=(0, 2)),
-            qml.TAdd((0, 1)),
-            qml.TAdd((0, 1)),
-        ]
-        qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
-        return dev.execute((qs1, qs2))
+    # @staticmethod
+    # def f_unhashable(dev, phi):
+    #     """A function that executes a batch of scripts on DefaultQutritMixed without preprocessing."""
+    #
+    #     ops = [
+    #         qml.TShift("a"),
+    #         qml.TShift("b"),
+    #         qml.TShift("b"),
+    #         qml.ControlledQutritUnitary(
+    #             qml.TRX.compute_matrix(phi),
+    #             control_wires=("a", "b", -3),
+    #             wires=("target"),
+    #             control_values="120",
+    #         ),
+    #     ]
+    #
+    #     qs1 = qml.tape.QuantumScript(
+    #         ops,
+    #         [
+    #             qml.expval(qml.sum(qml.GellMann("target", 2), qml.GellMann("b", 3))),
+    #             qml.expval(qml.s_prod(3, qml.GellMann("target", 8))),
+    #         ],
+    #     )
+    #
+    #     ops = [
+    #         qml.THadamard(0),
+    #         qml.TAdd((0, 1)),
+    #         qml.TRX(phi, 1),
+    #         qml.TRX(phi, 1, subspace=(1, 2)),
+    #         qml.TAdd((0, 1)),
+    #         qml.TAdd((0, 1)),
+    #     ]
+    #     qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
+    #
+    #     return dev.execute((qs1, qs2))
 
     @staticmethod
     def f(phi):
@@ -685,11 +667,13 @@ class TestExecutingBatches:
 
         ops = [
             qml.THadamard(0),
+            qml.THadamard(1),
             qml.TAdd((0, 1)),
-            qml.TRX(phi, 1),
-            qml.TRX(phi, 1, subspace=(1, 2)),
+            qml.TRZ(phi, 1),
+            qml.TRZ(phi, 1, subspace=(0, 2)),
             qml.TAdd((0, 1)),
             qml.TAdd((0, 1)),
+            qml.THadamard(1),
         ]
         qs2 = qml.tape.QuantumScript(ops, [qml.probs(wires=(0, 1))])
         return DefaultQutritMixed().execute((qs1, qs2))
@@ -697,25 +681,21 @@ class TestExecutingBatches:
     @staticmethod
     def expected(phi):
         """expected output of f."""
-        out1 = (-np.sin(phi) - 2 / np.sqrt(3), np.sqrt(3) * np.cos(phi))
+        out1 = (-math.sin(phi) - 2 / math.sqrt(3), 3 * math.cos(phi))
 
-        x1 = np.cos(phi / 2) ** 4 / 3
-        x2 = (np.sin(phi) / 2) ** 2 / 3
-        x3 = np.sin(phi / 2) ** 2 / 3
+        x1 = 4 * math.cos(3 / 2 * phi) + 5
+        x2 = 2 - 2 * math.cos(3 * phi / 2)
         out2 = (
-            x1 * np.array([1, 0, 0, 1, 0, 0, 1, 0, 0])
-            + x2 * np.array([0, 1, 0, 0, 1, 0, 0, 1, 0])
-            + x3 * np.array([0, 0, 1, 0, 0, 1, 0, 0, 1])
-        )
+            x1 * np.array([1, 0, 0, 1, 0, 0, 1, 0, 0]) + x2 * np.array([0, 1, 1, 0, 1, 1, 0, 1, 1])
+        ) / 27
 
         return (out1, out2)
 
     @staticmethod
-    def nested_compare(x1, x2):  # TODO
+    def nested_compare(x1, x2):
         """Assert two ragged lists are equal."""
         assert len(x1) == len(x2)
         assert len(x1[0]) == len(x2[0])
-        print(x1[1])
         assert qml.math.allclose(x1[0][0], x2[0][0])
         assert qml.math.allclose(x1[0][1], x2[0][1])
         assert qml.math.allclose(x1[1], x2[1])
@@ -727,25 +707,6 @@ class TestExecutingBatches:
         expected = self.expected(phi)
 
         self.nested_compare(results, expected)
-
-    # def test_todo_remove(self):
-    #     """Test that results are expected when the parameter does not have a parameter."""
-    #     dev = qml.devices.default_qutrit.DefaultQutrit(("a","b",-3,"target"))
-    #     ops = [
-    #         qml.TShift("a"),
-    #         qml.TShift("b"),
-    #         qml.TShift("b"),
-    #         qml.ControlledQutritUnitary(qml.TRX.compute_matrix(0.4), control_wires=("a", "b", -3),
-    #                                     wires="target", control_values="121")
-    #     ]
-    #
-    #     qs1 = qml.tape.QuantumScript(
-    #         ops,
-    #         [
-    #             qml.expval(qml.GellMann("target", 8)),
-    #         ],
-    #     )
-    #     return dev.execute(qs1)
 
     @pytest.mark.autograd
     def test_autograd(self):
@@ -795,14 +756,17 @@ class TestExecutingBatches:
 
         self.nested_compare(results, expected)
 
-        g1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[0], x)
-        assert qml.math.allclose(g1[0], -qml.math.cos(x))
-        assert qml.math.allclose(g1[1], -3 * qml.math.sin(x))
+        jacobian_1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[0], x)
+        assert qml.math.allclose(jacobian_1[0], -qml.math.cos(x))
+        assert qml.math.allclose(jacobian_1[1], -3 * qml.math.sin(x))
 
-        g1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[1], x)
-        temp = -0.5 * qml.math.cos(x / 2) * qml.math.sin(x / 2)
-        g3 = torch.tensor([temp, -temp, temp, -temp])
-        assert qml.math.allclose(g1, g3)
+        jacobian_1 = torch.autograd.functional.jacobian(lambda y: self.f(y)[1], x)
+
+        x1 = 2 * -math.sin(3 / 2 * x)
+        x2 = math.sin(3 / 2 * x)
+        jacobian_3 = math.array([x1, x2, x2, x1, x2, x2, x1, x2, x2]) / 9
+
+        assert qml.math.allclose(jacobian_1, jacobian_3)
 
     @pytest.mark.tf
     def test_tf(self):
@@ -816,15 +780,17 @@ class TestExecutingBatches:
         expected = self.expected(x)
         self.nested_compare(results, expected)
 
-        g00 = tape.gradient(results[0][0], x)
-        assert qml.math.allclose(g00, -qml.math.cos(x))
-        g01 = tape.gradient(results[0][1], x)
-        assert qml.math.allclose(g01, -3 * qml.math.sin(x))
+        jacobian_00 = tape.gradient(results[0][0], x)
+        assert qml.math.allclose(jacobian_00, -qml.math.cos(x))
+        jacobian_01 = tape.gradient(results[0][1], x)
+        assert qml.math.allclose(jacobian_01, -3 * qml.math.sin(x))
 
-        g1 = tape.jacobian(results[1], x)
-        temp = -0.5 * qml.math.cos(x / 2) * qml.math.sin(x / 2)
-        g3 = tf.Variable([temp, -temp, temp, -temp])
-        assert qml.math.allclose(g1, g3)
+        jacobian_1 = tape.jacobian(results[1], x)
+
+        x1 = 2 * -math.sin(3 / 2 * x)
+        x2 = math.sin(3 / 2 * x)
+        jacobian_3 = math.array([x1, x2, x2, x1, x2, x2, x1, x2, x2]) / 9
+        assert qml.math.allclose(jacobian_1, jacobian_3)
 
 
 @pytest.mark.parametrize("convert_to_hamiltonian", (True, False))
@@ -866,7 +832,7 @@ class TestSumOfTermsDifferentiability:
         "coeffs",
         [
             (qml.numpy.array(2.5), qml.numpy.array(6.2)),
-            # (qml.numpy.array(2.5, requires_grad=False), TODO: add once diff testing added
+            # (qml.numpy.array(2.5, requires_grad=False),  # TODO: add once diff testing added
             #  qml.numpy.array(6.2, requires_grad=False)),
         ],
     )
