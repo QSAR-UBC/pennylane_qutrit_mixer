@@ -70,7 +70,7 @@ def accepted_sample_measurement(m: qml.measurements.MeasurementProcess) -> bool:
     return isinstance(m, qml.measurements.SampleMeasurement)
 
 
-class DefaultQutritMixed(Device):  # TODO
+class DefaultQutritMixed(Device):
     """A PennyLane device written in Python and capable of backpropagation derivatives.
 
     Args:
