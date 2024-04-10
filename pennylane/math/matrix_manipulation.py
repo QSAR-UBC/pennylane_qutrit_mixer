@@ -24,7 +24,7 @@ import pennylane as qml
 from pennylane.wires import Wires
 
 
-def expand_matrix(mat, wires, wire_order=None, sparse_format="csr"):
+def expand_matrix(mat, wires, wire_order=None, sparse_format="csr", qudit_dim=2):
     # pylint: disable=too-many-branches
     """Re-express a matrix acting on a subspace defined by a set of wire labels
     according to a global wire order.
@@ -114,8 +114,8 @@ def expand_matrix(mat, wires, wire_order=None, sparse_format="csr"):
 
     def eye_interface(dim):
         if interface == "scipy":
-            return eye(2**dim, format="coo")
-        return qml.math.cast_like(qml.math.eye(2**dim, like=interface), mat)
+            return eye(qudit_dim**dim, format="coo")
+        return qml.math.cast_like(qml.math.eye(qudit_dim**dim, like=interface), mat)
 
     def kron_interface(mat1, mat2):
         if interface == "scipy":
@@ -163,7 +163,7 @@ def expand_matrix(mat, wires, wire_order=None, sparse_format="csr"):
 
         num_post_identities = len(wire_order) - max(wire_indices) - 1
         if num_post_identities > 0:
-            mats.append((eye_interface(num_post_identities),))
+            mats.append((eye_interface(num_post_identities),))                                # TODO
 
         # itertools.product will create a tuple of matrices for each different batch
         mats_list = list(itertools.product(*mats))
