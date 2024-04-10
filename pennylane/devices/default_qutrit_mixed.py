@@ -92,14 +92,26 @@ class DefaultQutritMixed(Device):
 
     .. code-block:: python
 
-        TODO create new qutrit qscripts
+        n_wires = 5
+        num_qscripts = 5
+
+        qscripts = []
+        for i in range(num_qscripts):
+            unitary = scipy.stats.unitary_group(dim=3**n_wires, seed=(42 + i)).rvs()
+            op = qml.QutritUnitary(unitary, wires=range(n_wires))
+            qs = qml.tape.QuantumScript([op], [qml.expval(qml.GellMann(0, 3))])
+            qscripts.append(qs)
 
     >>> dev = DefaultQutritMixed()
     >>> program, execution_config = dev.preprocess()
     >>> new_batch, post_processing_fn = program(qscripts)
     >>> results = dev.execute(new_batch, execution_config=execution_config)
     >>> post_processing_fn(results)
-    TODO add results
+    [0.08015701503959313,
+    0.04521414211599359,
+    -0.0215232130089687,
+    0.062120285032425865,
+    -0.0635052317625]
 
     This device currently supports backpropagation derivatives:
 
@@ -233,11 +245,6 @@ class DefaultQutritMixed(Device):
 
         if config.gradient_method == "backprop":
             transform_program.add_transform(no_sampling, name="backprop + default.qutrit")
-
-        if config.gradient_method == "adjoint":
-            raise NotImplementedError(
-                "adjoint differentiation not yet available for qutrit mixed-state device"
-            )
 
         return transform_program, config
 
