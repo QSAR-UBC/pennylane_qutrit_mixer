@@ -55,8 +55,8 @@ def stopping_condition(op: qml.operation.Operator) -> bool:
     """Specify whether an Operator object is supported by the device."""
     if op.name in DefaultQutrit.operations:
         return True
-    if op.name in channels:
-        return True
+    if op.name in channels:  # Can't cover this in tests until a channel is added
+        return True  # pragma: not covered
     return False
 
 
@@ -253,4 +253,4 @@ class DefaultQutritMixed(Device):
         circuits: QuantumTape_or_Batch,
         execution_config: ExecutionConfig = DefaultExecutionConfig,
     ) -> Result_or_ResultBatch:
-        return None
+        return None  # pragma: not covered
