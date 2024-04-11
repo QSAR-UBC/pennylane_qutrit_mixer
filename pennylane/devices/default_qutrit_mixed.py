@@ -53,11 +53,7 @@ def observable_stopping_condition(obs: qml.operation.Operator) -> bool:
 
 def stopping_condition(op: qml.operation.Operator) -> bool:
     """Specify whether an Operator object is supported by the device."""
-    if op.name in DefaultQutrit.operations:
-        return True
-    if op.name in channels:  # Can't cover this in tests until a channel is added
-        return True  # pragma: not covered
-    return False
+    return op.name in (DefaultQutrit.operations | channels)
 
 
 def stopping_condition_shots(op: qml.operation.Operator) -> bool:
