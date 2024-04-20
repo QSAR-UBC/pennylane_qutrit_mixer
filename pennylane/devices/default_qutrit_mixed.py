@@ -24,6 +24,7 @@ import pennylane as qml
 from pennylane.transforms.core import TransformProgram
 from pennylane.tape import QuantumTape
 from pennylane.typing import Result, ResultBatch
+from pennylane.ops import _qutrit__channel__ops__ as channels
 
 from . import Device
 from .modifiers import single_tape_support, simulator_tracking
@@ -48,8 +49,6 @@ QuantumTape_or_Batch = Union[QuantumTape, QuantumTapeBatch]
 
 # always a function from a resultbatch to either a result or a result batch
 PostprocessingFn = Callable[[ResultBatch], Result_or_ResultBatch]
-
-channels = set()
 
 
 def observable_stopping_condition(obs: qml.operation.Operator) -> bool:
