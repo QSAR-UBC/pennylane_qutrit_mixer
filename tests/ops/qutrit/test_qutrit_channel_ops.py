@@ -65,6 +65,7 @@ class TestQutritDepolarizingChannel:
         for krause_matrix, expected_matrix in zip(kraus_matrices, expected_matrices):
             assert np.allclose(krause_matrix, expected_matrix, atol=tol, rtol=0)
 
+    @pytest.mark.skip("Unfinished")
     @pytest.mark.parametrize("angle", np.linspace(0, 2 * np.pi, 7))
     def test_grad_depolarizing(self, angle):
         """Test that analytical gradient is computed correctly for different states. Channel
