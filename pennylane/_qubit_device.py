@@ -878,7 +878,11 @@ class QubitDevice(Device):
             # np.random.choice does not support broadcasting as needed here.
             return np.array([np.random.choice(basis_states, shots, p=prob) for prob in state_probs])
 
-        return np.random.choice(basis_states, shots, p=state_probs)
+        try:
+            return np.random.choice(basis_states, shots, p=state_probs)
+        except ValueError:
+            print("sum broke, normalizing")
+            return np.random.choice(basis_states, shots, p=state_probs/sum(state_probs))
 
     @staticmethod
     def generate_basis_states(num_wires, dtype=np.uint32):

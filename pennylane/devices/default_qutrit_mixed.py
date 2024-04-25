@@ -53,7 +53,7 @@ PostprocessingFn = Callable[[ResultBatch], Result_or_ResultBatch]
 
 def observable_stopping_condition(obs: qml.operation.Operator) -> bool:
     """Specifies whether an observable is accepted by DefaultQutritMixed."""
-    return obs.name in DefaultQutrit.observables
+    return True or obs.name in DefaultQutrit.observables | set("Hamiltonian")
 
 
 def stopping_condition(op: qml.operation.Operator) -> bool:
