@@ -48,13 +48,70 @@ from pennylane.ops.qubit.attributes import diagonal_in_z_basis
 from pennylane.wires import Wires
 
 from .._version import __version__
-from .qtcorgi_helper.qtcorgi_simulator import get_qubit_final_state_from_initial
+import jax
+import jax.numpy as jnp
+from .qtcorgi_helper.apply_operations import qubit_branches
+
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 ABC_ARRAY = np.array(list(ABC))
 tolerance = 1e-10
+
+
+def get_qubit_final_state_from_initial(operations, initial_state):
+    """
+    TODO
+
+    Args:
+        operations ():TODO
+        initial_state ():TODO
+
+    Returns:
+        Tuple[TensorLike, bool]: A tuple containing the final state of the quantum script and
+            whether the state has a batch dimension.
+
+    """
+    ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
+    for op in operations:
+
+        wires = op.wires()
+
+        if isinstance(op, Channel):
+            ops_type_indices[0].append(2)
+            ops_type_indices[1].append([].index(type(op)))
+        elif len(wires) == 1:
+            ops_type_indices[0].append(0)
+            ops_type_indices[1].append([qml.RX, qml.RY, qml.RZ, qml.Hadamard].index(type(op)))
+        elif len(wires) == 2:
+            ops_type_indices[0].append(1)
+            ops_type_indices[1].append(0)  # Assume always CNOT
+        else:
+            raise ValueError("TODO")
+
+        if len(wires) == 1:
+            wires = [wires[0], -1]
+            params = op.parameters + ([0] * (3 - op.num_params))
+        ops_wires[0].append(wires[0])
+        ops_wires[1].append(wires[1])
+
+        ops_param[0].append(params[0])
+
+    ops_info = {
+        "type_index": jnp.array(ops_type_indices),
+        "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
+        "params": [jnp.array(ops_param)],
+    }
+
+    return jax.lax.scan(
+        lambda state, op_info: (
+            jax.lax.switch(op_info["type_indices"][0], qubit_branches, state, op_info),
+            None,
+        ),
+        initial_state,
+        ops_info,
+    )[0]
 
 
 class DefaultMixed(QubitDevice):
@@ -93,73 +150,18 @@ class DefaultMixed(QubitDevice):
     author = "Xanadu Inc."
 
     operations = {
-        "Identity",
-        "Snapshot",
         "BasisState",
         "QubitStateVector",
         "StatePrep",
         "QubitDensityMatrix",
-        "QubitUnitary",
-        "ControlledQubitUnitary",
-        "BlockEncode",
-        "MultiControlledX",
-        "DiagonalQubitUnitary",
-        "SpecialUnitary",
-        "PauliX",
-        "PauliY",
-        "PauliZ",
-        "MultiRZ",
         "Hadamard",
-        "S",
-        "T",
-        "SX",
         "CNOT",
-        "SWAP",
-        "ISWAP",
-        "CSWAP",
-        "Toffoli",
-        "CCZ",
-        "CY",
-        "CZ",
-        "CH",
-        "PhaseShift",
-        "PCPhase",
-        "ControlledPhaseShift",
-        "CPhaseShift00",
-        "CPhaseShift01",
-        "CPhaseShift10",
         "RX",
         "RY",
         "RZ",
-        "Rot",
-        "CRX",
-        "CRY",
-        "CRZ",
-        "CRot",
         "AmplitudeDamping",
-        "GeneralizedAmplitudeDamping",
-        "PhaseDamping",
         "DepolarizingChannel",
         "BitFlip",
-        "PhaseFlip",
-        "PauliError",
-        "ResetError",
-        "QubitChannel",
-        "SingleExcitation",
-        "SingleExcitationPlus",
-        "SingleExcitationMinus",
-        "DoubleExcitation",
-        "DoubleExcitationPlus",
-        "DoubleExcitationMinus",
-        "QubitCarry",
-        "QubitSum",
-        "OrbitalRotation",
-        "FermionicSWAP",
-        "QFT",
-        "ThermalRelaxationError",
-        "ECR",
-        "ParametrizedEvolution",
-        "GlobalPhase",
     }
 
     _reshape = staticmethod(qnp.reshape)

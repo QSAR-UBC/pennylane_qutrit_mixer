@@ -18,12 +18,12 @@ from numpy.random import default_rng
 import pennylane as qml
 from pennylane.typing import Result
 
-from .apply_operation import apply_operation
 from .initialize_state import create_initial_state
 from .measure import measure
 from .sampling import measure_with_samples
-from .utils import QUDIT_DIM
-from ..qtcorgi_helper.qtcorgi_simulator import get_qutrit_final_state_from_initial
+from ..qtcorgi_helper.apply_operations import qutrit_branches
+import jax
+import jax.numpy as jnp
 
 INTERFACE_TO_LIKE = {
     # map interfaces known by autoray to themselves
@@ -44,6 +44,70 @@ INTERFACE_TO_LIKE = {
     "tensorflow-autograph": "tensorflow",
     "tf-autograph": "tensorflow",
 }
+
+
+def get_qutrit_final_state_from_initial(operations, initial_state):
+    """
+    TODO
+
+    Args:
+        operations ():TODO
+        initial_state ():TODO
+
+    Returns:
+        Tuple[TensorLike, bool]: A tuple containing the final state of the quantum script and
+            whether the state has a batch dimension.
+
+    """
+    ops_type_indices, ops_subspace, ops_wires, ops_params = [[], []], [], [[], []], [[], [], []]
+    for op in operations:
+
+        wires = op.wires()
+
+        if isinstance(op, qml.operation.Channel):
+            ops_type_indices[0].append(2)
+            ops_type_indices[1].append(
+                [qml.QutritDepolarizingChannel, qml.QutritAmplitudeDamping, qml.TritFlip].index(
+                    type(op)
+                )
+            )
+            params = op.parameters + ([0] * (3 - op.num_params))
+        elif len(wires) == 1:
+            ops_type_indices[0].append(0)
+            ops_type_indices[1].append([qml.TRX, qml.TRY, qml.TRZ, qml.THadamard].index(type(op)))
+            if ops_type_indices[1][-1] == 3:
+                params = [0] + list(op.subspace) if op.subspace is not None else [0, 0]
+            else:
+                params = list(op.params) + list(op.subspace)
+        elif len(wires) == 2:
+            ops_type_indices[0].append(1)
+            ops_type_indices[1].append(0)  # Assume always TAdd
+            params = [0, 0, 0]
+        else:
+            raise ValueError("TODO")
+        ops_params[0].append(params[0])
+        ops_params[1].append(params[1])
+        ops_params[2].append(params[2])
+
+        if len(wires) == 1:
+            wires = [wires[0], -1]
+        ops_wires[0].append(wires[0])
+        ops_wires[1].append(wires[1])
+
+    ops_info = {
+        "type_indices": jnp.array(ops_type_indices),
+        "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
+        "params": [jnp.array(ops_params[0]), jnp.array(ops_params[1]), jnp.array(ops_params[2])],
+    }
+
+    return jax.lax.scan(
+        lambda state, op_info: (
+            jax.lax.switch(op_info["type_indices"][0], qutrit_branches, state, op_info),
+            None,
+        ),
+        initial_state,
+        ops_info,
+    )[0]
 
 
 def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=None) -> Result:

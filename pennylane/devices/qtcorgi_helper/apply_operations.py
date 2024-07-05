@@ -110,11 +110,12 @@ def apply_operation_einsum(kraus, wires, state):
     return jnp.einsum(einsum_indices, kraus, state, kraus_dagger)
 
 
-def get_two_qubit_unitary_matrix():
+def get_two_qubit_unitary_matrix(param):
+    # TODO
     pass
 
 
-def get_CNOT_matrix(params):
+def get_CNOT_matrix(param):
     return jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]])
 
 
