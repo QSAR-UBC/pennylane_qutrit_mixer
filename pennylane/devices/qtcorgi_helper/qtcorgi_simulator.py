@@ -21,7 +21,6 @@ def get_qubit_final_state_from_initial(operations, initial_state):
     """
     ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
     for op in operations:
-
         wires = op.wires()
 
         if isinstance(op, Channel):
@@ -74,7 +73,6 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
     """
     ops_type_indices, ops_subspace, ops_wires, ops_params = [[], []], [], [[], []], [[], [], []]
     for op in operations:
-
         wires = op.wires()
 
         if isinstance(op, Channel):
@@ -94,7 +92,7 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
                 params = list(op.params) + list(op.subspace)
         elif len(wires) == 2:
             ops_type_indices[0].append(1)
-            ops_type_indices[1].append(0)  # Assume always TAdd
+            ops_type_indices[1].append(["TAdd", "Adjoint(TAdd)"].index(op.name))
             params = [0, 0, 0]
         else:
             raise ValueError("TODO")
