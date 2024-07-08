@@ -159,6 +159,9 @@ single_qutrit_ops = [
         else qml.THadamard.compute_matrix(subspace=params[1:])
     ),
 ]
+
+two_qutrits_ops = [qml.TAdd.compute_matrix, qml.adjoint(qml.TAdd).compute_matrix]
+
 single_qutrit_channels = [
     lambda params: qml.QutritDepolarizingChannel.compute_kraus_matrices(params[0]),
     lambda params: qml.QutritAmplitudeDamping.compute_kraus_matrices(*params),
@@ -174,22 +177,8 @@ def apply_single_qutrit_unitary(state, op_info):
 
 def apply_two_qutrit_unitary(state, op_info):
     wires = op_info["wires"]
-    kraus_mat = [
-        jnp.array(
-            [
-                [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 1, 0, 0, 0],
-                [0, 0, 0, 1, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 1, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0, 1, 0, 0],
-            ]
-        )
-    ]
-    return apply_operation_einsum(kraus_mat, wires, state)
+    kraus_mats = [jax.lax.switch(op_info["type_indices"][1], two_qutrits_ops)]
+    return apply_operation_einsum(kraus_mats, wires, state)
 
 
 def apply_single_qutrit_channel(state, op_info):

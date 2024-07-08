@@ -71,7 +71,15 @@ def observable_stopping_condition(obs: qml.operation.Operator) -> bool:
 
 def stopping_condition(op: qml.operation.Operator) -> bool:
     """Specify whether an Operator object is supported by the device."""
-    expected_set = DefaultQutrit.operations | {"Snapshot"} | channels
+    operations = {
+        "TAdd",
+        "Adjoint(TAdd)",
+        "THadamard",
+        "TRX",
+        "TRY",
+        "TRZ",
+    }
+    expected_set = operations | channels
     return op.name in expected_set
 
 
@@ -292,7 +300,6 @@ class DefaultQutritMixed(Device):
         circuits: QuantumTape_or_Batch,
         execution_config: ExecutionConfig = DefaultExecutionConfig,
     ) -> Result_or_ResultBatch:
-
         interface = (
             execution_config.interface
             if execution_config.gradient_method in {"best", "backprop", None}
