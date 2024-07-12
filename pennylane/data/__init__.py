@@ -15,7 +15,7 @@
 
 .. note::
 
-    For more details on using datasets, please see the
+    To start using datasets, please first see the
     :doc:`quantum datasets quickstart guide </introduction/data>`.
 
 Overview
@@ -89,8 +89,7 @@ To create a new dataset in-memory, initialize a new :class:`~.Dataset` with the 
 ...   eigen = {"eigvals": eigvals, "eigvecs": eigvecs}
 ... )
 >>> dataset.hamiltonian
-(1.0) [Z0]
-+ (1.0) [Z1]
+1.0 * Z(0) + 1.0 * Z(1)
 >>> dataset.eigen
 {'eigvals': array([-2.,  0.,  0.,  2.]),
 'eigvecs': array([[0.+0.j, 0.+0.j, 0.+0.j, 1.+0.j],
@@ -212,18 +211,12 @@ from .attributes import (
     DatasetSparseArray,
     DatasetString,
     DatasetTuple,
+    DatasetPyTree,
 )
 from .base import DatasetNotWriteableError
 from .base.attribute import AttributeInfo, DatasetAttribute, attribute
 from .base.dataset import Dataset, field
-from .data_manager import (
-    DEFAULT,
-    FULL,
-    list_attributes,
-    list_datasets,
-    load,
-    load_interactive,
-)
+from .data_manager import DEFAULT, FULL, list_attributes, list_datasets, load, load_interactive
 
 __all__ = (
     "AttributeInfo",
@@ -233,6 +226,7 @@ __all__ = (
     "DatasetAttribute",
     "DatasetNotWriteableError",
     "DatasetArray",
+    "DatasetPyTree",
     "DatasetScalar",
     "DatasetString",
     "DatasetList",

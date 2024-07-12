@@ -14,20 +14,20 @@
 """
 Tests for the jacobian product calculator classes.
 """
+import numpy as np
+
 # pylint: disable=protected-access
 import pytest
 from cachetools import LRUCache
 from param_shift_dev import ParamShiftDerivativesDevice
 
-import numpy as np
-
 import pennylane as qml
 from pennylane.workflow.jacobian_products import (
-    JacobianProductCalculator,
-    TransformJacobianProducts,
     DeviceDerivatives,
     DeviceJacobianProducts,
+    JacobianProductCalculator,
     LightningVJPs,
+    TransformJacobianProducts,
 )
 
 dev = qml.device("default.qubit")
@@ -151,7 +151,8 @@ class TestBasics:
             r" ExecutionConfig(grad_on_execution=None, use_device_gradient=None,"
             r" use_device_jacobian_product=None,"
             r" gradient_method='adjoint', gradient_keyword_arguments={},"
-            r" device_options={}, interface=None, derivative_order=1)>"
+            r" device_options={}, interface=None, derivative_order=1,"
+            r" mcm_config=MCMConfig(mcm_method=None, postselect_mode=None))>"
         )
 
         assert repr(jpc) == expected
@@ -169,7 +170,8 @@ class TestBasics:
             r" ExecutionConfig(grad_on_execution=None, use_device_gradient=None,"
             r" use_device_jacobian_product=None,"
             r" gradient_method='adjoint', gradient_keyword_arguments={}, device_options={},"
-            r" interface=None, derivative_order=1)>"
+            r" interface=None, derivative_order=1,"
+            r" mcm_config=MCMConfig(mcm_method=None, postselect_mode=None))>"
         )
 
         assert repr(jpc) == expected

@@ -14,10 +14,11 @@
 """
 Unit tests for :mod:`pennylane.wires`.
 """
-import pytest
 import numpy as np
+import pytest
+
 import pennylane as qml
-from pennylane.wires import Wires, WireError
+from pennylane.wires import WireError, Wires
 
 
 # pylint: disable=too-many-public-methods
@@ -183,8 +184,8 @@ class TestWires:
 
         wires_str = str(Wires([1, 2, 3]))
         wires_repr = repr(Wires([1, 2, 3]))
-        assert wires_str == "<Wires = [1, 2, 3]>"
-        assert wires_repr == "<Wires = [1, 2, 3]>"
+        assert wires_str == "Wires([1, 2, 3])"
+        assert wires_repr == "Wires([1, 2, 3])"
 
     def test_array_representation(self):
         """Tests that Wires object has an array representation."""

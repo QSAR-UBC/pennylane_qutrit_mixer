@@ -25,11 +25,8 @@ from scipy import sparse
 
 import pennylane as qml
 from pennylane import numpy as npp
-from pennylane.ops.qubit import (
-    RX as old_loc_RX,
-    MultiRZ as old_loc_MultiRZ,
-)
-
+from pennylane.ops.qubit import RX as old_loc_RX
+from pennylane.ops.qubit import MultiRZ as old_loc_MultiRZ
 from pennylane.wires import Wires
 
 PARAMETRIZED_OPERATIONS = [
@@ -157,7 +154,7 @@ class TestOperations:
         assert hash(metadata)
 
         new_op = type(op)._unflatten(*op._flatten())
-        assert qml.equal(op, new_op)
+        qml.assert_equal(op, new_op)
 
     @pytest.mark.jax
     @pytest.mark.parametrize("op", ALL_OPERATIONS + BROADCASTED_OPERATIONS)
@@ -170,7 +167,7 @@ class TestOperations:
 
         leaves, tree_def = jax.tree_util.tree_flatten(op)
         op_unflattened = jax.tree_util.tree_unflatten(tree_def, leaves)
-        assert qml.equal(op_unflattened, op)
+        qml.assert_equal(op_unflattened, op)
 
         new_op = jax.tree_util.tree_map(lambda x: x + 1.0, op)
         for d1, d2 in zip(new_op.data, op.data):
@@ -2771,10 +2768,13 @@ class TestPauliRot:
         op = qml.PauliRot(theta, "II", wires=[0, 1])
         decomp_ops = op.decomposition()
 
-        assert np.allclose(op.eigvals(), np.exp(-1j * theta / 2) * np.ones(4))
-        assert np.allclose(op.matrix() / op.matrix()[0, 0], np.eye(4))
+        assert len(decomp_ops) == 1
 
-        assert len(decomp_ops) == 0
+        decomp_op = decomp_ops[0]
+
+        qml.assert_equal(decomp_op, qml.GlobalPhase(theta / 2))
+
+        assert qml.math.allclose(op.matrix(), decomp_op.matrix() * np.eye(4))
 
     def test_PauliRot_all_Identity_broadcasted(self):
         """Test handling of the broadcasted all-identity Pauli."""
@@ -2783,13 +2783,16 @@ class TestPauliRot:
         op = qml.PauliRot(theta, "II", wires=[0, 1])
         decomp_ops = op.decomposition()
 
-        phases = np.exp(-1j * theta / 2)
-        assert np.allclose(op.eigvals(), np.outer(phases, np.ones(4)))
-        mat = op.matrix()
-        for phase, sub_mat in zip(phases, mat):
-            assert np.allclose(sub_mat, phase * np.eye(4))
+        assert len(decomp_ops) == 1
 
-        assert len(decomp_ops) == 0
+        decomp_op = decomp_ops[0]
+        qml.assert_equal(decomp_op, qml.GlobalPhase(theta / 2))
+
+        op_matrices = op.matrix()
+        decomp_op_matrices = decomp_op.matrix().T
+        assert len(op_matrices) == len(decomp_op_matrices)
+        for op_matrix, decomp_phase in zip(op_matrices, decomp_op_matrices):
+            assert qml.math.allclose(op_matrix, decomp_phase * np.eye(4))
 
     @pytest.mark.parametrize("theta", [0.4, np.array([np.pi / 3, 0.1, -0.9])])
     def test_PauliRot_decomposition_ZZ(self, theta):
@@ -2994,7 +2997,7 @@ class TestPauliRot:
             else:
                 expected_gen = expected_gen @ getattr(qml, f"Pauli{pauli}")(wires=i)
 
-        assert qml.equal(gen, qml.Hamiltonian([-0.5], [expected_gen]))
+        qml.assert_equal(gen, qml.Hamiltonian([-0.5], [expected_gen]))
 
     @pytest.mark.torch
     @pytest.mark.gpu
@@ -3028,6 +3031,7 @@ class TestPauliRot:
         assert gen.operands[0].name == expected.obs[0].name
         assert gen.operands[1].wires == expected.obs[1].wires
 
+    @pytest.mark.usefixtures("use_new_opmath")
     def test_pauli_rot_generator(self):
         """Test that the generator of the PauliRot operation
         is correctly returned."""
@@ -3201,7 +3205,7 @@ class TestMultiRZ:
         for i in range(1, qubits):
             expected_gen = expected_gen @ qml.PauliZ(wires=i)
 
-        assert qml.equal(gen, qml.Hamiltonian([-0.5], [expected_gen]))
+        qml.assert_equal(gen, qml.Hamiltonian([-0.5], [expected_gen]))
 
         spy = mocker.spy(qml.utils, "pauli_eigs")
 
@@ -3553,7 +3557,7 @@ class TestSimplify:
             assert isinstance(simplified_op, qml.Identity)
         else:
             # PSWAP reduces to SWAP when the angle is 0
-            assert qml.equal(simplified_op, qml.SWAP(wires=[0, 1]))
+            qml.assert_equal(simplified_op, qml.SWAP(wires=[0, 1]))
 
     def test_simplify_rot(self):
         """Simplify rot operations with different parameters."""

@@ -60,7 +60,7 @@ Operator to Operator functions
     ~pennylane.map_wires
     ~pennylane.dot
     ~pennylane.evolve
-    ~pennylane.iterative_qpe
+    ~pennylane.simplify
 
 These operator functions act on operators to produce new operators.
 
@@ -80,7 +80,8 @@ Operator to Other functions
     ~pennylane.is_commuting
     ~pennylane.is_hermitian
     ~pennylane.is_unitary
-    ~pennylane.simplify
+    ~pennylane.iterative_qpe
+
 
 These operator functions act on operators and return other data types.
 All operator functions can be used on instantiated operators.
@@ -132,10 +133,9 @@ For example:
 >>> mat = np.array([[1, 1], [1, -1]])
 >>> h = qml.pauli_decompose(mat)
 >>> type(h)
-<class 'pennylane.ops.qubit.hamiltonian.Hamiltonian'>
+pennylane.ops.op_math.linear_combination.LinearCombination
 >>> print(h)
-(1.0) [X0]
-+ (1.0) [Z0]
+1.0 * X(0) + 1.0 * Z(0)
 
 .. _intro_ref_ops_qubit:
 
@@ -493,6 +493,24 @@ Qutrit State preparation
     :nosignatures:
 
     ~pennylane.QutritBasisState
+
+:html:`</div>`
+
+.. _intro_ref_ops_qutrit_channels:
+
+Qutrit noisy channels
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+:html:`<div class="summary-table">`
+
+.. autosummary::
+    :nosignatures:
+
+    ~pennylane.QutritDepolarizingChannel
+    ~pennylane.QutritAmplitudeDamping
+    ~pennylane.TritFlip
+    ~pennylane.QutritChannel
 
 :html:`</div>`
 
