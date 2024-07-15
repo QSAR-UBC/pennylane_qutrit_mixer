@@ -14,7 +14,7 @@ from functools import partial, reduce
 alphabet_array = np.array(list(alphabet))
 
 
-def get_einsum_mapping(wires, state):
+def get_einsum_mapping_one_wire(wires, state, ):
     r"""Finds the indices for einsum to apply kraus operators to a mixed state
 
     Args:
@@ -22,56 +22,57 @@ def get_einsum_mapping(wires, state):
         state (array[complex]): Input quantum state
 
     Returns:
-        str: Indices mapping that defines the einsum
+        tuple(tuple(int)): Indices mapping that defines the einsum
     """
     num_ch_wires = len(wires)
     num_wires = int(len(qml.math.shape(state)) / 2)
     rho_dim = 2 * num_wires
 
     # Tensor indices of the state. For each qutrit, need an index for rows *and* columns
-    state_indices = alphabet[:rho_dim]
+    state_indices = (..., ) + tuple(range(rho_dim))  # TODO this may need to be an input from above
 
     # row indices of the quantum state affected by this operation
-    row_wires_list = wires.tolist()
-    row_indices = "".join(alphabet_array[row_wires_list].tolist())
+    row_indices = tuple(wires)
 
     # column indices are shifted by the number of wires
-    col_wires_list = [w + num_wires for w in row_wires_list]
-    col_indices = "".join(alphabet_array[col_wires_list].tolist())
+    col_indices = tuple(w + num_wires for w in wires)  # TODO replace
 
     # indices in einsum must be replaced with new ones
-    new_row_indices = alphabet[rho_dim : rho_dim + num_ch_wires]
-    new_col_indices = alphabet[rho_dim + num_ch_wires : rho_dim + 2 * num_ch_wires]
+    new_row_indices = tuple(range(rho_dim, rho_dim + num_ch_wires))
+    new_col_indices = tuple(range(rho_dim + num_ch_wires, rho_dim + 2 * num_ch_wires))
 
     # index for summation over Kraus operators
-    kraus_index = alphabet[rho_dim + 2 * num_ch_wires : rho_dim + 2 * num_ch_wires + 1]
+    kraus_index = (rho_dim + 2 * num_ch_wires,)
 
     # apply mapping function
-    op_1_indices = f"{kraus_index}{new_row_indices}{row_indices}"
-    op_2_indices = f"{kraus_index}{col_indices}{new_col_indices}"
+    op_1_indices = (...,) + kraus_index + new_row_indices + row_indices
+    op_2_indices = (...,) + kraus_index + col_indices + new_col_indices
 
-    new_state_indices = get_new_state_einsum_indices(
+    new_state_indices = (...,) + get_new_state_einsum_indices(
         old_indices=col_indices + row_indices,
         new_indices=new_col_indices + new_row_indices,
         state_indices=state_indices,
     )
-    # index mapping for einsum, e.g., '...iga,...abcdef,...idh->...gbchef'
-    return f"...{op_1_indices},...{state_indices},...{op_2_indices}->...{new_state_indices}"
+    # index mapping for einsum, e.g., (...0,1,2,3), (...0,1,2,3), (...0,1,2,3), (...0,1,2,3)
+    return op_1_indices, state_indices, op_2_indices, new_state_indices
 
 
 def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
     """Retrieves the einsum indices string for the new state
 
     Args:
-        old_indices (str): indices that are summed
-        new_indices (str): indices that must be replaced with sums
-        state_indices (str): indices of the original state
+        old_indices tuple(int): indices that are summed
+        new_indices tuple(int): indices that must be replaced with sums
+        state_indices tuple(int): indices of the original state
 
     Returns:
-        str: The einsum indices of the new state
+        tuple(int): The einsum indices of the new state
     """
-    return reduce(
-        lambda old_string, idx_pair: old_string.replace(idx_pair[0], idx_pair[1]),
+    # for old, new in zip(old_indices, new_indices):
+    # for i in old_indices:
+    #     old_indices[i] = jax.lax.cond()
+    return reduce(  # TODO, redo
+        lambda old_indices, idx_pair: old_indices[idx_pair[0]],
         zip(old_indices, new_indices),
         state_indices,
     )
@@ -80,7 +81,7 @@ def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
 QUDIT_DIM = 3
 
 
-def apply_operation_einsum(kraus, wires, state):
+def apply_operation_einsum(kraus, wires, state, mapping_indices):
     r"""Apply a quantum channel specified by a list of Kraus operators to subsystems of the
     quantum state. For a unitary gate, there is a single Kraus operator.
 
@@ -88,11 +89,12 @@ def apply_operation_einsum(kraus, wires, state):
         kraus (??): TODO
         wires
         state (array[complex]): Input quantum state
+        mapping_indices
 
     Returns:
         array[complex]: output_state
     """
-    einsum_indices = get_einsum_mapping(wires, state)
+    op_1_indices, state_indices, op_2_indices, new_state_indices = get_einsum_mapping(wires, state)
 
     num_ch_wires = len(wires)
 
@@ -100,14 +102,12 @@ def apply_operation_einsum(kraus, wires, state):
     kraus_shape = [len(kraus)] + [QUDIT_DIM] * num_ch_wires * 2
 
     kraus = jnp.stack(kraus)
-    kraus_transpose = jnp.stack(jnp.moveaxis(kraus, source=-1, destination=-2))
-    # Torch throws error if math.conj is used before stack
-    kraus_dagger = jnp.conj(kraus_transpose)
+    kraus_dagger = jnp.conj(jnp.stack(jnp.moveaxis(kraus, source=-1, destination=-2)))
 
     kraus = jnp.reshape(kraus, kraus_shape)
     kraus_dagger = jnp.reshape(kraus_dagger, kraus_shape)
 
-    return jnp.einsum(einsum_indices, kraus, state, kraus_dagger)
+    return jnp.einsum(kraus, op_1_indices, state, state_indices, kraus_dagger, op_2_indices, new_state_indices)
 
 
 def get_two_qubit_unitary_matrix(param):
