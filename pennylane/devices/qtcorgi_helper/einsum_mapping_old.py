@@ -80,4 +80,4 @@ def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
 
 QUDIT_DIM = 3
 
-print(get_einsum_mapping([0,1], np.zeros((3,3,3,3,3,3,3,3))))
+print(get_einsum_mapping([0, 1], np.zeros((3, 3, 3, 3, 3, 3, 3, 3))))
