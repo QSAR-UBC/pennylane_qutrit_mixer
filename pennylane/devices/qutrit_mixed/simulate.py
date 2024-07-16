@@ -74,7 +74,7 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
         elif len(wires) == 1:
             ops_type_indices[0].append(0)
             ops_type_indices[1].append([qml.TRX, qml.TRY, qml.TRZ, qml.THadamard].index(type(op)))
-            subspace_index = op.subspace.index([None, (0, 1), (0, 2), (1, 2)])
+            subspace_index = [None, (0, 1), (0, 2), (1, 2)].index(op.subspace)
             if ops_type_indices[1][-1] == 3:
                 params = [0, subspace_index, 0]
             else:
