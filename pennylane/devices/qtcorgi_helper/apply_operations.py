@@ -153,16 +153,30 @@ def apply_single_qubit_channel(state, op_info):
 
 qubit_branches = [apply_single_qubit_unitary, apply_two_qubit_unitary, apply_single_qubit_channel]
 
-
-single_qutrit_ops = [
+single_qutrit_ops_subspace_0 = [None, None, None, lambda _param: qml.THadamard.compute_matrix()]
+single_qutrit_ops_subspace_1 = [
     qml.TRX.compute_matrix,
     qml.TRY.compute_matrix,
     qml.TRZ.compute_matrix,
-    lambda params: (
-        qml.THadamard.compute_matrix()
-        if params[1] != 0
-        else qml.THadamard.compute_matrix(subspace=params[1:])
-    ),
+    partial(qml.THadamard.compute_matrix, subspace=[0, 1]),
+]
+single_qutrit_ops_subspace_2 = [
+    partial(qml.TRX.compute_matrix, subspace=[0, 2]),
+    partial(qml.TRY.compute_matrix, subspace=[0, 2]),
+    partial(qml.TRZ.compute_matrix, subspace=[0, 2]),
+    partial(qml.THadamard.compute_matrix, subspace=[0, 2]),
+]
+single_qutrit_ops_subspace_3 = [
+    partial(qml.TRX.compute_matrix, subspace=[1, 2]),
+    partial(qml.TRY.compute_matrix, subspace=[1, 2]),
+    partial(qml.TRZ.compute_matrix, subspace=[1, 2]),
+    partial(qml.THadamard.compute_matrix, subspace=[0, 2]),
+]
+single_qutrit_ops = [
+    single_qutrit_ops_subspace_0,
+    single_qutrit_ops_subspace_1,
+    single_qutrit_ops_subspace_2,
+    single_qutrit_ops_subspace_3,
 ]
 
 two_qutrits_ops = [qml.TAdd.compute_matrix, qml.adjoint(qml.TAdd).compute_matrix]
@@ -175,8 +189,9 @@ single_qutrit_channels = [
 
 
 def apply_single_qutrit_unitary(state, op_info):
-    wires, param = op_info["wires"][:0], op_info["params"][0]
-    kraus_mats = [jax.lax.switch(op_info["type_indices"][1], single_qutrit_ops, param)]
+    wires, param, subspace_index = op_info["wires"][:0], op_info["params"][0], op_info["params"][1]
+    mat_funcs = jax.lax.switch(subspace_index, single_qutrit_ops, param)
+    kraus_mats = [jax.lax.switch(op_info["type_indices"][1], mat_funcs, param)]
     return apply_operation_einsum(kraus_mats, wires, state)
 
 

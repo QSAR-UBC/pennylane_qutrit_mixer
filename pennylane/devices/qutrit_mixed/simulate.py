@@ -61,8 +61,7 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
     """
     ops_type_indices, ops_subspace, ops_wires, ops_params = [[], []], [], [[], []], [[], [], []]
     for op in operations:
-
-        wires = op.wires()
+        wires = op.wires
 
         if isinstance(op, qml.operation.Channel):
             ops_type_indices[0].append(2)
@@ -75,10 +74,11 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
         elif len(wires) == 1:
             ops_type_indices[0].append(0)
             ops_type_indices[1].append([qml.TRX, qml.TRY, qml.TRZ, qml.THadamard].index(type(op)))
+            subspace_index = op.subspace.index([None, (0, 1), (0, 2), (1, 2)])
             if ops_type_indices[1][-1] == 3:
-                params = [0] + list(op.subspace) if op.subspace is not None else [0, 0]
+                params = [0, subspace_index, 0]
             else:
-                params = list(op.params) + list(op.subspace)
+                params = list(op.parameters) + [subspace_index, 0]
         elif len(wires) == 2:
             ops_type_indices[0].append(1)
             ops_type_indices[1].append(0)  # Assume always TAdd
