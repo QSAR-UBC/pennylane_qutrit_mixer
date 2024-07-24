@@ -14,6 +14,16 @@ from functools import partial, reduce
 alphabet_array = np.array(list(alphabet))
 
 
+def swap_axes(op, start, fin):
+    axes = jnp.arange(op.ndim)
+    for s,f in zip(start, fin):
+        axes = axes.at[f].set(s)
+        axes = axes.at[s].set(f)
+    indices = jnp.mgrid[tuple(slice(s) for s in op.shape)] #TODO can do
+    indices = indices[axes]
+    return op[tuple(indices[i] for i in range(indices.shape[0]))]
+
+
 def get_einsum_mapping(wires, state):
     r"""Finds the indices for einsum to apply kraus operators to a mixed state
 
@@ -72,8 +82,7 @@ def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
         tuple(int): The einsum indices of the new state
     """
     for old, new in zip(old_indices, new_indices):
-        for i, state_index in enumerate(state_indices):  # TODO replace with jax.lax.scan
-            state_indices[i] = jax.lax.cond(old == state_index, lambda: new, lambda: state_index)
+        state_indices[old] = new
     return (...,) + tuple(state_indices)
     # return reduce(  # TODO, redo
     #     lambda old_indices, idx_pair: old_indices[idx_pair[0]],
@@ -83,6 +92,52 @@ def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
 
 
 QUDIT_DIM = 3
+
+
+def apply_single_qudit_operation(kraus, wire, state):
+    num_wires = state.ndim // 2
+    start, fin = (wire, wire+num_wires), (0, num_wires)
+    state = swap_axes(state, start, fin)
+
+    # Shape kraus operators
+    kraus_shape = [len(kraus)] + [QUDIT_DIM] * 2
+
+    kraus = jnp.stack(kraus)
+    kraus_dagger = jnp.conj(jnp.stack(jnp.moveaxis(kraus, source=-1, destination=-2)))
+
+    kraus = jnp.reshape(kraus, kraus_shape)
+    kraus_dagger = jnp.reshape(kraus_dagger, kraus_shape)
+    op_1_indices, state_indices, op_2_indices, new_state_indices = get_einsum_mapping([0], state)  # TODO fix
+    state = jnp.einsum(kraus, op_1_indices, state, state_indices, kraus_dagger, op_2_indices, new_state_indices)
+    return swap_axes(state, fin, start)
+
+
+def get_swap_indices(num_wires):
+    return (0, num_wires, 1, 1 + num_wires)
+
+
+def get_swap_indices_opposite(num_wires):
+    return (1, 1 + num_wires, 0, num_wires)
+
+
+def apply_two_qudit_operation(kraus, wires, state):
+    num_wires = state.ndim//2
+    start = (wires[0], wires[0]+num_wires, wires[1], wires[1]+num_wires)
+    fin = jax.lax.cond(wires[0] > wires[1], get_swap_indices, get_swap_indices_opposite, num_wires)
+    state = swap_axes(state, start, fin)
+    state = swap_axes(state, start, fin)
+
+    # Shape kraus operators
+    kraus_shape = [len(kraus)] + [QUDIT_DIM] * 4  # 2 * num_wires = 4
+
+    kraus = jnp.stack(kraus)
+    kraus_dagger = jnp.conj(jnp.stack(jnp.moveaxis(kraus, source=-1, destination=-2)))
+
+    kraus = jnp.reshape(kraus, kraus_shape)
+    kraus_dagger = jnp.reshape(kraus_dagger, kraus_shape)
+    op_1_indices, state_indices, op_2_indices, new_state_indices = get_einsum_mapping([0, 1], state)
+    state = jnp.einsum(kraus, op_1_indices, state, state_indices, kraus_dagger, op_2_indices, new_state_indices)
+    return swap_axes(state, fin, start)
 
 
 def apply_operation_einsum(kraus, wires, state):
@@ -178,36 +233,41 @@ single_qutrit_ops = [
     lambda op_type, param: jax.lax.switch(op_type, single_qutrit_ops_subspace_12, param),
 ]
 
-two_qutrits_ops = [qml.TAdd.compute_matrix, qml.adjoint(qml.TAdd).compute_matrix]
-
-single_qutrit_channels = [
-    lambda params: qml.QutritDepolarizingChannel.compute_kraus_matrices(params[0]),
-    lambda params: qml.QutritAmplitudeDamping.compute_kraus_matrices(*params),
-    lambda params: qml.TritFlip.compute_kraus_matrices(*params),
-]
+two_qutrits_ops = [qml.TAdd.compute_matrix, lambda: jnp.conj(qml.TAdd.compute_matrix().T)]
 
 
 def apply_single_qutrit_unitary(state, op_info):
-    wires, param = op_info["wires"][:1], op_info["params"][0]
-    subspace_index, op_type = op_info["params"][1], op_info["type_indices"][1]
+    wire, param = op_info["wires"][0], op_info["params"][0]
+    subspace_index, op_type = op_info["wires"][1], op_info["type_indices"][1]
     kraus_mats = [jax.lax.switch(subspace_index, single_qutrit_ops, op_type, param)]
-    return apply_operation_einsum(kraus_mats, wires, state)
+    return apply_single_qudit_operation(kraus_mats, wire, state)
 
 
 def apply_two_qutrit_unitary(state, op_info):
     wires = op_info["wires"]
     kraus_mats = [jax.lax.switch(op_info["type_indices"][1], two_qutrits_ops)]
-    return apply_operation_einsum(kraus_mats, wires, state)
+    return apply_two_qudit_operation(kraus_mats, wires, state)
+
+
+def apply_qutrit_depolarizing_channel(state, op_info):
+    wire, param = op_info["wires"][0], op_info["params"][0]
+    kraus_mats = qml.QutritDepolarizingChannel.compute_kraus_matrices(param)
+    return apply_single_qudit_operation(kraus_mats, wire, state)
+
+
+def apply_qutrit_subspace_channel(state, op_info):
+    wire, params = op_info["wires"][0], op_info["params"]
+    print(params)
+    kraus_mats = jax.lax.cond(op_info["type_indices"][1] == 1, qml.QutritAmplitudeDamping.compute_kraus_matrices, qml.TritFlip.compute_kraus_matrices, *params)
+    return apply_single_qudit_operation(kraus_mats, wire, state)
 
 
 def apply_single_qutrit_channel(state, op_info):
-    wires, params = op_info["wires"][:1], op_info["params"]  # TODO qutrit channels take 3 params
-    kraus_mats = [jax.lax.switch(op_info["type_indices"][1], single_qutrit_channels, *params)]
-    return apply_operation_einsum(kraus_mats, wires, state)
-
+    return jax.lax.cond(op_info["type_indices"][1] == 0, apply_qutrit_depolarizing_channel,
+                        apply_qutrit_subspace_channel, state, op_info)
 
 qutrit_branches = [
     apply_single_qutrit_unitary,
-    apply_two_qutrit_unitary,
     apply_single_qutrit_channel,
+    apply_two_qutrit_unitary,
 ]

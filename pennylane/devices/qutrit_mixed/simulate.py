@@ -60,29 +60,33 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
 
     """
     ops_type_indices, ops_subspace, ops_wires, ops_params = [[], []], [], [[], []], [[], [], []]
+    two_qutrit_ops = False
     for op in operations:
         wires = op.wires
 
         if isinstance(op, qml.operation.Channel):
-            ops_type_indices[0].append(2)
+            ops_type_indices[0].append(1)
             ops_type_indices[1].append(
                 [qml.QutritDepolarizingChannel, qml.QutritAmplitudeDamping, qml.TritFlip].index(
                     type(op)
                 )
             )
             params = op.parameters + ([0] * (3 - op.num_params))
+            wires = [wires[0], -1]
         elif len(wires) == 1:
             ops_type_indices[0].append(0)
             ops_type_indices[1].append([qml.TRX, qml.TRY, qml.TRZ, qml.THadamard].index(type(op)))
             subspace_index = [None, (0, 1), (0, 2), (1, 2)].index(op.subspace)
             if ops_type_indices[1][-1] == 3:
-                params = [0, subspace_index, 0]
+                params = [0., 0., 0.]
             else:
-                params = list(op.parameters) + [subspace_index, 0]
+                params = list(op.parameters) + [0., 0.]
+            wires = [wires[0], subspace_index]
         elif len(wires) == 2:
-            ops_type_indices[0].append(1)
-            ops_type_indices[1].append(0)  # Assume always TAdd
-            params = [0, 0, 0]
+            ops_type_indices[0].append(2)
+            ops_type_indices[1].append(0 if isinstance(op, qml.TAdd) else 1)  # Always TAdd or adjoint
+            params = [0, 0., 0.]
+            two_qutrit_ops = True
         else:
             raise ValueError("TODO")
         ops_params[0].append(params[0])
@@ -95,19 +99,16 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
         ops_wires[1].append(wires[1])
 
     ops_info = {
-        "type_indices": jnp.array(ops_type_indices),
+        "type_indices": jnp.array(ops_type_indices).T,
         "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
         "params": [jnp.array(ops_params[0]), jnp.array(ops_params[1]), jnp.array(ops_params[2])],
     }
+    branches = qutrit_branches[: 2 + two_qutrit_ops]
 
-    return jax.lax.scan(
-        lambda state, op_info: (
-            jax.lax.switch(op_info["type_indices"][0], qutrit_branches, state, op_info),
-            None,
-        ),
-        initial_state,
-        ops_info,
-    )[0]
+    def switch_function(state, op_info):
+        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
+
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
 
 def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=None) -> Result:
@@ -182,8 +183,8 @@ def get_final_state_qutrit(circuit, **kwargs):
     if len(circuit) > 0 and isinstance(circuit[0], qml.operation.StatePrepBase):
         prep = circuit[0]
 
-    state = create_initial_state(sorted(circuit.op_wires), prep, like="jax")
-    return get_qutrit_final_state_from_initial(circuit.operations[bool(prep) :], state), False
+    state = jnp.complex128(create_initial_state(sorted(circuit.op_wires), prep, like="jax"))
+    return get_qutrit_final_state_from_initial(circuit.operations[bool(prep) :], state)
 
 
 def simulate(
