@@ -74,34 +74,58 @@ def get_qubit_final_state_from_initial(operations, initial_state):
 
     """
     ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
+
+    two_gates = [
+        "THadamard",
+        "TRX_01",
+        "TRY_01",
+        "TRZ_01",
+        "TRX_02",
+        "TRY_02",
+        "TRZ_02",
+        "TRX_12",
+        "TRY_12",
+        "TRZ_12",
+    ]
     for op in operations:
 
-        wires = op.wires()
+        wires = op.wires
 
         if isinstance(op, Channel):
-            ops_type_indices[0].append(2)
-            ops_type_indices[1].append([].index(type(op)))
+            ops_type_indices[0].append(1)
+            ops_type_indices[1].append(
+                [qml.DepolarizingChannel, qml.AmplitudeDamping, qml.BitFlip].index(type(op))
+            )
         elif len(wires) == 1:
             ops_type_indices[0].append(0)
             ops_type_indices[1].append([qml.RX, qml.RY, qml.RZ, qml.Hadamard].index(type(op)))
         elif len(wires) == 2:
-            ops_type_indices[0].append(1)
-            ops_type_indices[1].append(0)  # Assume always CNOT
+            ops_type_indices[0].append(2)
+            if isinstance(op, qml.CNOT):
+                op_index = 0
+            else:
+                op_index = two_gates.index(op.id) + 1
+            if op_index < 2:
+                ops_param.append(0)
+            elif op_index < 8:
+                ops_param.append(jnp.acos(op.matrix()[0, 0]))
+            else:
+                ops_param.append(jnp.acos(op.matrix()[1, 1]))
+            ops_type_indices[1].append(op_index)
+
         else:
             raise ValueError("TODO")
 
         if len(wires) == 1:
             wires = [wires[0], -1]
-            params = op.parameters + ([0] * (3 - op.num_params))
+            ops_param.append(op.parameters[0])
         ops_wires[0].append(wires[0])
         ops_wires[1].append(wires[1])
 
-        ops_param[0].append(params[0])
-
     ops_info = {
-        "type_index": jnp.array(ops_type_indices),
+        "type_indices": jnp.array(ops_type_indices).T,
         "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
-        "params": [jnp.array(ops_param)],
+        "param": [jnp.array(ops_param)],
     }
 
     return jax.lax.scan(
@@ -794,6 +818,7 @@ class DefaultMixed(QubitDevice):
                 prep = True
                 self._apply_operation(operation)
 
+        self._state = jnp.complex128(self._state)
         self._state = get_qubit_final_state_from_initial(operations[prep:], self._state)
         # store the pre-rotated state
         self._pre_rotated_state = self._state
