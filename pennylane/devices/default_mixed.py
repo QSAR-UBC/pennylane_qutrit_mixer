@@ -59,6 +59,18 @@ logger.addHandler(logging.NullHandler())
 ABC_ARRAY = np.array(list(ABC))
 tolerance = 1e-10
 
+two_gates = [
+    "THadamard",
+    "TRX_01",
+    "TRY_01",
+    "TRZ_01",
+    "TRX_02",
+    "TRY_02",
+    "TRZ_02",
+    "TRX_12",
+    "TRY_12",
+    "TRZ_12",
+]
 
 def get_qubit_final_state_from_initial(operations, initial_state):
     """
@@ -75,18 +87,7 @@ def get_qubit_final_state_from_initial(operations, initial_state):
     """
     ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
 
-    two_gates = [
-        "THadamard",
-        "TRX_01",
-        "TRY_01",
-        "TRZ_01",
-        "TRX_02",
-        "TRY_02",
-        "TRZ_02",
-        "TRX_12",
-        "TRY_12",
-        "TRZ_12",
-    ]
+
     two_qubit_ops = False
     for op in operations:
 
@@ -179,6 +180,7 @@ class DefaultMixed(QubitDevice):
         "QubitDensityMatrix",
         "Hadamard",
         "CNOT",
+        "QubitUnitary",
         "RX",
         "RY",
         "RZ",
