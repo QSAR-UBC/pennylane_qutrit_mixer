@@ -191,7 +191,6 @@ def apply_two_qubit_unitary(state, op_info):
             op_type,
         )
     ]
-    print(kraus_mats)
     return apply_two_qudit_operation(kraus_mats, wires, state, 2)
 
 
