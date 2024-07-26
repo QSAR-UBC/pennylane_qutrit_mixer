@@ -87,6 +87,7 @@ def get_qubit_final_state_from_initial(operations, initial_state):
         "TRY_12",
         "TRZ_12",
     ]
+    two_qubit_ops = False
     for op in operations:
 
         wires = op.wires
@@ -111,6 +112,7 @@ def get_qubit_final_state_from_initial(operations, initial_state):
                 ops_param.append(jnp.acos(op.matrix()[0, 0]))
             else:
                 ops_param.append(jnp.acos(op.matrix()[1, 1]))
+            two_qubit_ops = True
             ops_type_indices[1].append(op_index)
 
         else:
@@ -125,17 +127,14 @@ def get_qubit_final_state_from_initial(operations, initial_state):
     ops_info = {
         "type_indices": jnp.array(ops_type_indices).T,
         "wires": [jnp.array(ops_wires[0]), jnp.array(ops_wires[1])],
-        "param": [jnp.array(ops_param)],
+        "param": jnp.array(ops_param),
     }
+    branches = qubit_branches[: 2 + two_qubit_ops]
 
-    return jax.lax.scan(
-        lambda state, op_info: (
-            jax.lax.switch(op_info["type_indices"][0], qubit_branches, state, op_info),
-            None,
-        ),
-        initial_state,
-        ops_info,
-    )[0]
+    def switch_function(state, op_info):
+        return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
+
 
 
 class DefaultMixed(QubitDevice):
