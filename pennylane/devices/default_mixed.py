@@ -133,8 +133,8 @@ def get_qubit_final_state_from_initial(operations, initial_state):
 
     def switch_function(state, op_info):
         return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
-    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
+    return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
 
 class DefaultMixed(QubitDevice):

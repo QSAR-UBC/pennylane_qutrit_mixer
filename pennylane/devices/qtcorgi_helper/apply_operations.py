@@ -112,10 +112,9 @@ def apply_single_qudit_operation(kraus, wire, state, qudit_dim):
     return apply_operation_einsum(kraus, swap_inds, state, qudit_dim, 1)
 
 
-
-
 def apply_two_qudit_operation(kraus, wires, state, qudit_dim):
     num_wires = state.ndim // 2
+
     # wire_choice = (wires[0] == 1 * wires[1] == 0) + 2 * (wires[0] == 1 * wires[1] != 0) + 3 * (wires[0] != 1 * wires[1] == 0)
     def apply_two_qudit_regular():
         start = (wires[0], wires[0] + num_wires, wires[1], wires[1] + num_wires)
@@ -141,10 +140,12 @@ def apply_two_qudit_operation(kraus, wires, state, qudit_dim):
         fin = (1, 1 + num_wires, 0, num_wires)
         return apply_operation_einsum(kraus, (start, fin), state, qudit_dim, 2)
 
-    return jax.lax.cond(wires[0] == 1,
-                        lambda w1: jax.lax.cond(w1==0, apply_two_qudit_10, apply_two_qudit_1x),
-                        lambda w1: jax.lax.cond(w1==0, apply_two_qudit_x0, apply_two_qudit_regular),
-                        wires[1])
+    return jax.lax.cond(
+        wires[0] == 1,
+        lambda w1: jax.lax.cond(w1 == 0, apply_two_qudit_10, apply_two_qudit_1x),
+        lambda w1: jax.lax.cond(w1 == 0, apply_two_qudit_x0, apply_two_qudit_regular),
+        wires[1],
+    )
 
 
 single_qubit_ops = [

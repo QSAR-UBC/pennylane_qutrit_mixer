@@ -84,10 +84,8 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
             wires = [wires[0], subspace_index]
         elif len(wires) == 2:
             ops_type_indices[0].append(2)
-            ops_type_indices[1].append(
-                0 if isinstance(op, qml.TAdd) else 1
-            )
-            params = [0., 0., 0.]
+            ops_type_indices[1].append(0 if isinstance(op, qml.TAdd) else 1)
+            params = [0.0, 0.0, 0.0]
             two_qutrit_ops = True
         else:
             raise ValueError("TODO")
@@ -109,6 +107,7 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
 
     def switch_function(state, op_info):
         return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
+
     return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
 
