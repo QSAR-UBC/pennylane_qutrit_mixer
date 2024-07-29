@@ -14,6 +14,7 @@ from functools import partial, reduce
 alphabet_array = np.array(list(alphabet))
 
 
+@partial(jax.jit, static_argnames=["reverse"])
 def swap_axes(op, start, fin, reverse=False):
     axes = jnp.arange(op.ndim)
     for s, f in reversed(list(zip(start, fin))) if reverse else zip(start, fin):
@@ -86,6 +87,7 @@ def get_new_state_einsum_indices(old_indices, new_indices, state_indices):
     return (...,) + tuple(state_indices)
 
 
+# @jax.jit
 def apply_operation_einsum(kraus, swap_inds, state, qudit_dim, num_wires):
     state = swap_axes(state, *swap_inds)
 
@@ -106,16 +108,19 @@ def apply_operation_einsum(kraus, swap_inds, state, qudit_dim, num_wires):
     return swap_axes(state, *swap_inds, reverse=True)
 
 
+@partial(jax.jit, static_argnames=["qudit_dim"])
 def apply_single_qudit_operation(kraus, wire, state, qudit_dim):
     num_wires = state.ndim // 2
     swap_inds = (wire, wire + num_wires), (0, num_wires)
     return apply_operation_einsum(kraus, swap_inds, state, qudit_dim, 1)
 
 
+@partial(jax.jit, static_argnames=["qudit_dim"])
 def apply_two_qudit_operation(kraus, wires, state, qudit_dim):
     num_wires = state.ndim // 2
 
     # wire_choice = (wires[0] == 1 * wires[1] == 0) + 2 * (wires[0] == 1 * wires[1] != 0) + 3 * (wires[0] != 1 * wires[1] == 0)
+    @jax.jit
     def apply_two_qudit_regular():
         start = (wires[0], wires[0] + num_wires, wires[1], wires[1] + num_wires)
         fin = jax.lax.cond(
@@ -125,16 +130,19 @@ def apply_two_qudit_operation(kraus, wires, state, qudit_dim):
         )
         return apply_operation_einsum(kraus, (start, fin), state, qudit_dim, 2)
 
+    @jax.jit
     def apply_two_qudit_10():
         start = (1, 1 + num_wires)
         fin = (0, num_wires)
         return apply_operation_einsum(kraus, (start, fin), state, qudit_dim, 2)
 
+    @jax.jit
     def apply_two_qudit_1x():
         start = (1, 1 + num_wires, wires[1], wires[1] + num_wires)
         fin = (0, num_wires, 1, 1 + num_wires)
         return apply_operation_einsum(kraus, (start, fin), state, qudit_dim, 2)
 
+    @jax.jit
     def apply_two_qudit_x0():
         start = (0, num_wires, wires[0], wires[0] + num_wires)
         fin = (1, 1 + num_wires, 0, num_wires)
@@ -168,17 +176,20 @@ qubits_qutrit_ops = [
 ]
 
 
+@jax.jit
 def get_qutrit_op_as_qubits(param, op_type):
     new_mat = jnp.eye(4, dtype=jnp.complex128)
     return new_mat.at[:3, :3].set(jax.lax.switch(op_type - 1, qubits_qutrit_ops, param))
 
 
+@jax.jit
 def apply_single_qubit_unitary(state, op_info):
     wire, param = op_info["wires"][0], op_info["param"]
     kraus_mat = [jax.lax.switch(op_info["type_indices"][1], single_qubit_ops, param)]
     return apply_single_qudit_operation(kraus_mat, wire, state, 2)
 
 
+@jax.jit
 def apply_two_qubit_unitary(state, op_info):
     wires, param = op_info["wires"], op_info["param"]
     op_type = op_info["type_indices"][1]
@@ -194,12 +205,14 @@ def apply_two_qubit_unitary(state, op_info):
     return apply_two_qudit_operation(kraus_mats, wires, state, 2)
 
 
+@jax.jit
 def apply_qubit_depolarizing_channel(state, op_info):
     wire, param = op_info["wires"][0], op_info["param"]
     kraus_mats = qml.DepolarizingChannel.compute_kraus_matrices(param)
     return apply_single_qudit_operation(kraus_mats, wire, state, 2)
 
 
+@jax.jit
 def apply_qubit_flipping_channel(state, op_info):
     wire, param = op_info["wires"][0], op_info["param"]
     kraus_mats = jax.lax.cond(
@@ -211,6 +224,7 @@ def apply_qubit_flipping_channel(state, op_info):
     return apply_single_qudit_operation(kraus_mats, wire, state, 2)
 
 
+@jax.jit
 def apply_single_qubit_channel(state, op_info):
     return jax.lax.cond(
         op_info["type_indices"][1] == 0,
@@ -251,6 +265,7 @@ single_qutrit_ops = [
 two_qutrits_ops = [qml.TAdd.compute_matrix, lambda: jnp.conj(qml.TAdd.compute_matrix().T)]
 
 
+@jax.jit
 def apply_single_qutrit_unitary(state, op_info):
     wire, param = op_info["wires"][0], op_info["params"][0]
     subspace_index, op_type = op_info["wires"][1], op_info["type_indices"][1]
@@ -258,18 +273,21 @@ def apply_single_qutrit_unitary(state, op_info):
     return apply_single_qudit_operation(kraus_mats, wire, state, 3)
 
 
+@jax.jit
 def apply_two_qutrit_unitary(state, op_info):
     wires = op_info["wires"]
     kraus_mats = [jax.lax.switch(op_info["type_indices"][1], two_qutrits_ops)]
     return apply_two_qudit_operation(kraus_mats, wires, state, 3)
 
 
+@jax.jit
 def apply_qutrit_depolarizing_channel(state, op_info):
     wire, param = op_info["wires"][0], op_info["params"][0]
     kraus_mats = qml.QutritDepolarizingChannel.compute_kraus_matrices(param)
     return apply_single_qudit_operation(kraus_mats, wire, state, 3)
 
 
+@jax.jit
 def apply_qutrit_subspace_channel(state, op_info):
     wire, params = op_info["wires"][0], op_info["params"]
     kraus_mats = jax.lax.cond(
@@ -281,6 +299,7 @@ def apply_qutrit_subspace_channel(state, op_info):
     return apply_single_qudit_operation(kraus_mats, wire, state, 3)
 
 
+@jax.jit
 def apply_single_qutrit_channel(state, op_info):
     return jax.lax.cond(
         op_info["type_indices"][1] == 0,

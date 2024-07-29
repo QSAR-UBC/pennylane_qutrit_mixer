@@ -105,6 +105,7 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
     }
     branches = qutrit_branches[: 2 + two_qutrit_ops]
 
+    @jax.jit
     def switch_function(state, op_info):
         return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
 

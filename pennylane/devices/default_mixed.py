@@ -72,6 +72,7 @@ two_gates = [
     "TRZ_12",
 ]
 
+
 def get_qubit_final_state_from_initial(operations, initial_state):
     """
     TODO
@@ -86,7 +87,6 @@ def get_qubit_final_state_from_initial(operations, initial_state):
 
     """
     ops_type_indices, ops_wires, ops_param = [[], []], [[], []], []
-
 
     two_qubit_ops = False
     for op in operations:
@@ -132,6 +132,7 @@ def get_qubit_final_state_from_initial(operations, initial_state):
     }
     branches = qubit_branches[: 2 + two_qubit_ops]
 
+    @jax.jit
     def switch_function(state, op_info):
         return jax.lax.switch(op_info["type_indices"][0], branches, state, op_info), None
 
