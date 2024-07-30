@@ -112,7 +112,9 @@ def get_qutrit_final_state_from_initial(operations, initial_state):
     return jax.lax.scan(switch_function, initial_state, ops_info)[0]
 
 
-def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=None) -> Result:
+def measure_final_state(  # pylint: disable=too-many-arguments
+    circuit, state, is_state_batched, rng=None, prng_key=None, readout_errors=None
+) -> Result:
     """
     Perform the measurements required by the circuit on the provided state.
 
@@ -129,6 +131,8 @@ def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=Non
             the key to the JAX pseudo random number generator. Only for simulation using JAX.
             If None, the default ``sample_state`` function and a ``numpy.random.default_rng``
             will be for sampling.
+        readout_errors (List[Callable]): List of channels to apply to each wire being measured
+        to simulate readout errors.
 
     Returns:
         Tuple[TensorLike]: The measurement results
@@ -138,11 +142,12 @@ def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=Non
 
     if not circuit.shots:
         # analytic case
-
         if len(circuit.measurements) == 1:
-            return measure(circuit.measurements[0], state, is_state_batched)
+            return measure(circuit.measurements[0], state, is_state_batched, readout_errors)
 
-        return tuple(measure(mp, state, is_state_batched) for mp in circuit.measurements)
+        return tuple(
+            measure(mp, state, is_state_batched, readout_errors) for mp in circuit.measurements
+        )
 
     # finite-shot case
     rng = default_rng(rng)
@@ -154,6 +159,7 @@ def measure_final_state(circuit, state, is_state_batched, rng=None, prng_key=Non
             is_state_batched=is_state_batched,
             rng=rng,
             prng_key=prng_key,
+            readout_errors=readout_errors,
         )
         for mp in circuit.measurements
     )
@@ -188,8 +194,13 @@ def get_final_state_qutrit(circuit, **kwargs):
     return get_qutrit_final_state_from_initial(circuit.operations[bool(prep) :], state)
 
 
-def simulate(
-    circuit: qml.tape.QuantumScript, rng=None, prng_key=None, debugger=None, interface=None
+def simulate(  # pylint: disable=too-many-arguments
+    circuit: qml.tape.QuantumScript,
+    rng=None,
+    prng_key=None,
+    debugger=None,
+    interface=None,
+    readout_errors=None,
 ) -> Result:
     """Simulate a single quantum script.
 
@@ -205,6 +216,8 @@ def simulate(
             generated. Only for simulation using JAX.
         debugger (_Debugger): The debugger to use
         interface (str): The machine learning interface to create the initial state with
+        readout_errors (List[Callable]): List of channels to apply to each wire being measured
+        to simulate readout errors.
 
     Returns:
         tuple(TensorLike): The results of the simulation
@@ -222,4 +235,6 @@ def simulate(
     state = get_final_state_qutrit(
         circuit, debugger=debugger, interface=interface, rng=rng, prng_key=prng_key
     )
-    return measure_final_state(circuit, state, False, rng=rng, prng_key=prng_key)
+    return measure_final_state(
+        circuit, state, False, rng=rng, prng_key=prng_key, readout_errors=readout_errors
+    )
