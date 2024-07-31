@@ -108,11 +108,9 @@ def get_qubit_final_state_from_initial(operations, initial_state):
             else:
                 op_index = two_gates.index(op.id) + 1
             if op_index < 2:
-                ops_param.append(0)
-            elif op_index < 8:
-                ops_param.append(jnp.acos(op.matrix()[0, 0]))
+                ops_param.append(0.0)
             else:
-                ops_param.append(jnp.acos(op.matrix()[1, 1]))
+                ops_param.append(op.phi)
             two_qubit_ops = True
             ops_type_indices[1].append(op_index)
 

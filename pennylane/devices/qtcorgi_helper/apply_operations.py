@@ -12,6 +12,7 @@ import numpy as np
 from functools import partial, reduce
 
 alphabet_array = np.array(list(alphabet))
+stack_last = partial(qml.math.stack, axis=-1)
 
 
 @partial(jax.jit, static_argnames=["reverse"])
@@ -162,17 +163,108 @@ single_qubit_ops = [
     qml.RZ.compute_matrix,
     lambda _param: jnp.complex128(qml.Hadamard.compute_matrix()),
 ]
-qubits_qutrit_ops = [
-    lambda _param: qml.THadamard.compute_matrix(),
-    qml.TRX.compute_matrix,
-    qml.TRY.compute_matrix,
-    qml.TRZ.compute_matrix,
-    partial(qml.TRX.compute_matrix, subspace=[0, 2]),
-    partial(qml.TRY.compute_matrix, subspace=[0, 2]),
-    partial(qml.TRZ.compute_matrix, subspace=[0, 2]),
-    partial(qml.TRX.compute_matrix, subspace=[1, 2]),
-    partial(qml.TRY.compute_matrix, subspace=[1, 2]),
-    partial(qml.TRZ.compute_matrix, subspace=[1, 2]),
+
+
+def get_qubit_TRX_matrix_func(subspace):
+    def qubit_TRX_matrix(theta):
+        c = qml.math.cos(theta / 2)
+        s = qml.math.sin(theta / 2)
+
+        # The following avoids casting an imaginary quantity to reals when backpropagating
+        c = (1 + 0j) * c
+        js = -1j * s
+        one = qml.math.ones_like(c)
+        z = qml.math.zeros_like(c)
+
+        diags = [one, one, one]
+        diags[subspace[0]] = c
+        diags[subspace[1]] = c
+
+        off_diags = [z, z, z]
+        off_diags[qml.math.sum(subspace) - 1] = js
+
+        return qml.math.stack(
+            [
+                stack_last([diags[0], off_diags[0], off_diags[1], z]),
+                stack_last([off_diags[0], diags[1], off_diags[2], z]),
+                stack_last([off_diags[1], off_diags[2], diags[2], z]),
+                stack_last([z, z, z, one]),
+            ],
+            axis=-2,
+        )
+
+    return qubit_TRX_matrix
+
+
+def get_qubit_TRY_matrix_func(subspace):
+    def qubit_TRY_matrix(theta):
+        c = qml.math.cos(theta / 2)
+        s = qml.math.sin(theta / 2)
+
+        # The following avoids casting an imaginary quantity to reals when backpropagating
+        c = (1 + 0j) * c
+        s = (1 + 0j) * s
+        one = qml.math.ones_like(c)
+        z = qml.math.zeros_like(c)
+
+        diags = [one, one, one]
+        diags[subspace[0]] = c
+        diags[subspace[1]] = c
+
+        off_diags = [z, z, z]
+        off_diags[qml.math.sum(subspace) - 1] = s
+
+        return qml.math.stack(
+            [
+                stack_last([diags[0], -off_diags[0], -off_diags[1], z]),
+                stack_last([off_diags[0], diags[1], -off_diags[2], z]),
+                stack_last([off_diags[1], off_diags[2], diags[2], z]),
+                stack_last([z, z, z, one]),
+            ],
+            axis=-2,
+        )
+
+    return qubit_TRY_matrix
+
+
+def get_qubit_TRZ_matrix_func(subspace):
+    def qubit_TRZ_matrix(theta):
+        p = qml.math.exp(-1j * theta / 2)
+        one = qml.math.ones_like(p)
+        z = qml.math.zeros_like(p)
+
+        diags = [one, one, one]
+        diags[subspace[0]] = p
+        diags[subspace[1]] = qml.math.conj(p)
+
+        return qml.math.stack(
+            [
+                stack_last([diags[0], z, z, z]),
+                stack_last([z, diags[1], z, z]),
+                stack_last([z, z, diags[2], z]),
+                stack_last([z, z, z, one]),
+            ],
+            axis=-2,
+        )
+
+    return qubit_TRZ_matrix
+
+
+OMEGA = np.exp(2 * np.pi * 1j / 3)
+
+two_qubit_ops = [
+    lambda _param: jnp.complex128(qml.CNOT.compute_matrix()),
+    lambda _param: (-1j / np.sqrt(3))
+    * np.array([[1, 1, 1, 0], [1, OMEGA, OMEGA**2, 0], [1, OMEGA**2, OMEGA, 0], [0, 0, 0, 1]]),
+    get_qubit_TRX_matrix_func([0, 1]),
+    get_qubit_TRY_matrix_func([0, 1]),
+    get_qubit_TRZ_matrix_func([0, 1]),
+    get_qubit_TRX_matrix_func([0, 2]),
+    get_qubit_TRY_matrix_func([0, 2]),
+    get_qubit_TRZ_matrix_func([0, 2]),
+    get_qubit_TRX_matrix_func([1, 2]),
+    get_qubit_TRY_matrix_func([1, 2]),
+    get_qubit_TRZ_matrix_func([1, 2]),
 ]
 
 
@@ -193,15 +285,7 @@ def apply_single_qubit_unitary(state, op_info):
 def apply_two_qubit_unitary(state, op_info):
     wires, param = op_info["wires"], op_info["param"]
     op_type = op_info["type_indices"][1]
-    kraus_mats = [
-        jax.lax.cond(
-            op_type == 0,
-            lambda *_args: jnp.complex128(qml.CNOT.compute_matrix()),
-            get_qutrit_op_as_qubits,
-            param,
-            op_type,
-        )
-    ]
+    kraus_mats = [jax.lax.switch(op_type, two_qubit_ops, param)]
     return apply_two_qudit_operation(kraus_mats, wires, state, 2)
 
 
